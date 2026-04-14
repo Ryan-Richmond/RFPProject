@@ -11,6 +11,9 @@ import {
   LayoutDashboard,
   Settings,
   LogOut,
+  Target,
+  Building2,
+  Cpu,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -31,6 +34,11 @@ const navItems = [
     icon: LayoutDashboard,
   },
   {
+    label: "Opportunities",
+    href: "/opportunities",
+    icon: Target,
+  },
+  {
     label: "Knowledge Base",
     href: "/knowledge-base",
     icon: BookOpen,
@@ -49,6 +57,16 @@ const navItems = [
     label: "Compliance",
     href: "/compliance",
     icon: CheckCircle,
+  },
+  {
+    label: "Profile",
+    href: "/profile",
+    icon: Building2,
+  },
+  {
+    label: "Computer Ops",
+    href: "/computer-ops",
+    icon: Cpu,
   },
 ];
 

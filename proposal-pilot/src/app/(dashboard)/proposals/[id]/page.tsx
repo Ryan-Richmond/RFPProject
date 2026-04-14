@@ -19,6 +19,10 @@ import {
   CircleDashed,
   AlertCircle,
   Download,
+  Shield,
+  Users,
+  DollarSign,
+  Building2,
 } from "lucide-react";
 
 // Demo data for the 3-column view
@@ -139,6 +143,7 @@ export default async function ProposalDetailPage({
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
           <TabsTrigger value="draft">Draft</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
+          <TabsTrigger value="competitive-intel">Competitive Intel</TabsTrigger>
         </TabsList>
 
         {/* Analysis View — 3-column layout */}
@@ -323,6 +328,101 @@ export default async function ProposalDetailPage({
                 Complete your draft and run the compliance checker to verify
                 requirement coverage before export.
               </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Competitive Intelligence View */}
+        <TabsContent value="competitive-intel" className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            {/* Incumbent Contractor */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Incumbent Contractor
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Competitive intelligence will be populated when Perplexity Agent
+                  researches the agency&apos;s recent awards for this NAICS code.
+                  Data sourced from USASpending and FPDS.
+                </p>
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Building2 className="h-3.5 w-3.5" />
+                    <span>Researching incumbent via USASpending...</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Recent Agency Awards */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Shield className="h-4 w-4" />
+                  Recent Agency Awards
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Historical awards in this NAICS code from the agency. Powered by
+                  Perplexity Agent API with domain filtering to USASpending, FPDS,
+                  and SAM.gov.
+                </p>
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <FileSearch className="h-3.5 w-3.5" />
+                    <span>Searching FPDS for award history...</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Pricing Intelligence */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <DollarSign className="h-4 w-4" />
+                Pricing Intelligence
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Historical contract pricing data will be displayed here when
+                available. The Perplexity Agent researches USASpending award
+                values and FPDS contract modifications to establish competitive
+                price benchmarks.
+              </p>
+              <div className="mt-4 grid grid-cols-3 gap-4">
+                <div className="rounded-lg border p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Avg Award Value
+                  </p>
+                  <p className="text-lg font-semibold text-muted-foreground/50">
+                    --
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Price Range
+                  </p>
+                  <p className="text-lg font-semibold text-muted-foreground/50">
+                    --
+                  </p>
+                </div>
+                <div className="rounded-lg border p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Typical Bidders
+                  </p>
+                  <p className="text-lg font-semibold text-muted-foreground/50">
+                    --
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

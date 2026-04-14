@@ -2,7 +2,7 @@
 
 ProposalPilot's core intelligence is delivered through four focused service modules that communicate via structured JSON. Each module handles a distinct stage of the proposal workflow.
 
-The product calls AI APIs directly (Anthropic for Claude, Perplexity for Sonar search). Perplexity Computer operates as the third team member for ops, not as the product's AI backend.
+All AI operations route through Perplexity's APIs. The Agent API is the orchestration layer, Sonar API provides web-grounded Q&A, and the Embeddings API handles vector storage. A single PERPLEXITY_API_KEY covers all three API surfaces.
 
 ---
 
@@ -33,7 +33,7 @@ The product calls AI APIs directly (Anthropic for Claude, Perplexity for Sonar s
    - Contract type (FFP, T&M, CPFF, etc.)
    - Topic/domain keywords
    - Date/recency
-4. **Semantic Indexing** (OpenAI Embeddings → Supabase pgvector) — Generate embeddings for each chunk. Store with metadata for retrieval.
+4. **Semantic Indexing** (Perplexity Embeddings API → Supabase pgvector) — Generate embeddings for each chunk. Store with metadata for retrieval.
 5. **Deduplication** — Flag near-duplicate content across uploads for user review.
 
 **Output** (structured JSON):
@@ -300,14 +300,18 @@ User: Upload RFP
 
 | Operation | API | Model | Why |
 |-----------|-----|-------|-----|
-| Requirement extraction | Anthropic | Claude (long-context) | Handles full RFP in single pass, best at structured extraction |
-| Federal vs. state/local classification | Anthropic | Claude Sonnet | Fast classification task |
-| Evidence chunk tagging | Anthropic | Claude Sonnet | Categorization, lower cost than Opus |
-| Proposal section drafting | Anthropic | Claude (long-context) | Highest quality reasoning and writing |
-| Cross-section coherence | Anthropic | Claude Sonnet | Comparison and consistency check |
-| Compliance checking | Anthropic | Claude Sonnet + deterministic rules | Rules for measurable criteria, AI for semantic matching |
-| Agency research & intel | Perplexity | Sonar Pro | Search-grounded with citations |
-| Embeddings generation | OpenAI | text-embedding-3-small | Cost-effective, good quality for RAG |
+| Requirement extraction | Perplexity Agent API | anthropic/claude-sonnet-4-6 | Best at structured extraction |
+| Federal vs. state/local classification | Perplexity Agent API | anthropic/claude-sonnet-4-6 | Fast classification |
+| Evidence chunk tagging | Perplexity Agent API | anthropic/claude-sonnet-4-6 | Categorization |
+| Proposal section drafting | Perplexity Agent API | anthropic/claude-opus-4-6 | Highest quality writing |
+| Cross-section coherence | Perplexity Agent API | anthropic/claude-sonnet-4-6 | Consistency check |
+| Compliance checking | Perplexity Agent API | anthropic/claude-sonnet-4-6 | Semantic matching |
+| Agency research & intel | Perplexity Agent API + web_search | sonar-pro | Search-grounded with citations |
+| Opportunity discovery | Perplexity Agent API + web_search | sonar-pro | Government RFP search |
+| Opportunity scoring | Perplexity Agent API | anthropic/claude-sonnet-4-6 | Multi-dimension scoring |
+| Win probability | Perplexity Agent API + web_search | anthropic/claude-sonnet-4-6 | Market-informed estimation |
+| Embeddings generation | Perplexity Embeddings API | sonar-embedding | RAG vector storage |
+| Fast web Q&A | Perplexity Sonar API | sonar-pro | Quick agency intel lookups |
 
 ## Data Flow & Storage
 
@@ -322,9 +326,9 @@ User: Upload RFP
 | Proposal outcomes | Supabase PostgreSQL | Analytics, future success-fee calculation |
 | Audit logs | Supabase PostgreSQL | Debugging, trust, compliance |
 
-## Perplexity Computer — Ops Role
+## Perplexity Computer — Engine + Operator
 
-Computer handles operational workflows as the third team member, NOT product AI:
+Perplexity Computer is both the AI infrastructure of the product AND the operator of the company. All product AI routes through Perplexity's APIs, and Computer handles operational workflows:
 
 | Ops Function | How Computer Helps |
 |---|---|
