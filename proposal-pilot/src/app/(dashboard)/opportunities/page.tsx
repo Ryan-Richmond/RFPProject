@@ -35,7 +35,7 @@ interface Opportunity {
   }>;
 }
 
-function getScoreBadge(score: number, recommendation: string) {
+function getScoreBadge(score: number) {
   if (score >= 75) {
     return (
       <Badge className="bg-success/10 text-success border-success/20 gap-1">
@@ -257,7 +257,7 @@ export default function OpportunitiesPage() {
                       <CardTitle className="text-sm font-semibold leading-tight line-clamp-2">
                         {opp.title}
                       </CardTitle>
-                      {score && getScoreBadge(score.overall_score, score.recommendation)}
+                      {score && getScoreBadge(score.overall_score)}
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">

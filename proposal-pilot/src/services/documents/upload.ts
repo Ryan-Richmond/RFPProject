@@ -62,7 +62,7 @@ export async function uploadDocument(
   const filePath = `${workspaceId}/${documentType}/${timestamp}_${sanitizedName}`;
 
   // Upload to Supabase Storage
-  const { data: storageData, error: storageError } = await supabase.storage
+  const { error: storageError } = await supabase.storage
     .from("documents")
     .upload(filePath, file);
 

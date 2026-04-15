@@ -173,6 +173,11 @@ Return JSON:
   };
 
   // Save findings to Supabase
+  await supabase
+    .from("compliance_findings")
+    .delete()
+    .eq("proposal_draft_id", proposalId);
+
   if (parsed.requirement_status.length > 0) {
     await supabase.from("compliance_findings").insert(
       parsed.requirement_status.map((rs) => ({

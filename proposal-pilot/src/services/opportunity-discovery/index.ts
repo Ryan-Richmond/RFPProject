@@ -52,6 +52,84 @@ export interface OpportunityScore {
   citations: string[];
 }
 
+type OpportunityUpsertPayload = {
+  workspace_id: string;
+  source: string;
+  solicitation_number: string | null;
+  title: string;
+  agency: string;
+  posted_date: string | null;
+  response_deadline: string | null;
+  naics_codes: string[];
+  set_aside_type: string | null;
+  estimated_value_min: number | null;
+  estimated_value_max: number | null;
+  contract_type: string | null;
+  description: string | null;
+  source_url: string | null;
+  raw_data: Record<string, unknown>;
+};
+
+async function findExistingOpportunityId(
+  workspaceId: string,
+  source: string,
+  solicitationNumber?: string,
+  sourceUrl?: string
+): Promise<string | null> {
+  const supabase = await createClient();
+
+  if (solicitationNumber) {
+    const { data } = await supabase
+      .from("opportunities")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("source", source)
+      .eq("solicitation_number", solicitationNumber)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (data?.[0]?.id) {
+      return data[0].id;
+    }
+  }
+
+  if (sourceUrl) {
+    const { data } = await supabase
+      .from("opportunities")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("source", source)
+      .eq("source_url", sourceUrl)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (data?.[0]?.id) {
+      return data[0].id;
+    }
+  }
+
+  return null;
+}
+
+async function saveDiscoveredOpportunity(
+  payload: OpportunityUpsertPayload
+): Promise<string | null> {
+  const supabase = await createClient();
+  const existingId = await findExistingOpportunityId(
+    payload.workspace_id,
+    payload.source,
+    payload.solicitation_number || undefined,
+    payload.source_url || undefined
+  );
+
+  const query = existingId
+    ? supabase.from("opportunities").update(payload).eq("id", existingId)
+    : supabase.from("opportunities").insert(payload);
+
+  const { data } = await query.select("id").single();
+  return data?.id || null;
+}
+
 // ---- Service Functions ----
 
 /**
@@ -161,31 +239,27 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
     const savedOpportunities: DiscoveredOpportunity[] = [];
 
     for (const opp of rawOpportunities) {
-      const { data: saved } = await supabase
-        .from("opportunities")
-        .insert({
-          workspace_id: workspaceId,
-          source: "sam_gov",
-          solicitation_number: (opp.solicitation_number as string) || null,
-          title: (opp.title as string) || "Untitled Opportunity",
-          agency: (opp.agency as string) || "Unknown Agency",
-          posted_date: (opp.posted_date as string) || null,
-          response_deadline: (opp.response_deadline as string) || null,
-          naics_codes: (opp.naics_codes as string[]) || [],
-          set_aside_type: (opp.set_aside_type as string) || null,
-          estimated_value_min: (opp.estimated_value_min as number) || null,
-          estimated_value_max: (opp.estimated_value_max as number) || null,
-          contract_type: (opp.contract_type as string) || null,
-          description: (opp.description as string) || null,
-          source_url: (opp.source_url as string) || null,
-          raw_data: opp,
-        })
-        .select("id")
-        .single();
+      const savedId = await saveDiscoveredOpportunity({
+        workspace_id: workspaceId,
+        source: "sam_gov",
+        solicitation_number: (opp.solicitation_number as string) || null,
+        title: (opp.title as string) || "Untitled Opportunity",
+        agency: (opp.agency as string) || "Unknown Agency",
+        posted_date: (opp.posted_date as string) || null,
+        response_deadline: (opp.response_deadline as string) || null,
+        naics_codes: (opp.naics_codes as string[]) || [],
+        set_aside_type: (opp.set_aside_type as string) || null,
+        estimated_value_min: (opp.estimated_value_min as number) || null,
+        estimated_value_max: (opp.estimated_value_max as number) || null,
+        contract_type: (opp.contract_type as string) || null,
+        description: (opp.description as string) || null,
+        source_url: (opp.source_url as string) || null,
+        raw_data: opp,
+      });
 
-      if (saved) {
+      if (savedId) {
         savedOpportunities.push({
-          id: saved.id,
+          id: savedId,
           source: "sam_gov",
           solicitationNumber: opp.solicitation_number as string | undefined,
           title: (opp.title as string) || "Untitled Opportunity",

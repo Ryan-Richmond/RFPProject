@@ -74,26 +74,73 @@ export async function POST(
       );
     }
 
-    // Create a solicitation record from this opportunity
-    const { data: solicitation, error } = await supabase
-      .from("solicitations")
-      .insert({
-        workspace_id: opportunity.workspace_id,
-        solicitation_number: opportunity.solicitation_number,
-        title: opportunity.title,
-        agency: opportunity.agency,
-        classification: "federal",
-        due_date: opportunity.response_deadline,
-        status: "analyzing",
-      })
-      .select("id")
-      .single();
+    const existingSolicitationQuery = opportunity.solicitation_number
+      ? supabase
+          .from("solicitations")
+          .select("id")
+          .eq("workspace_id", opportunity.workspace_id)
+          .eq("solicitation_number", opportunity.solicitation_number)
+          .maybeSingle()
+      : supabase
+          .from("solicitations")
+          .select("id")
+          .eq("workspace_id", opportunity.workspace_id)
+          .eq("title", opportunity.title)
+          .maybeSingle();
 
-    if (error) throw error;
+    const { data: existingSolicitation } = await existingSolicitationQuery;
+
+    let solicitationId = existingSolicitation?.id || null;
+
+    if (!solicitationId) {
+      const { data: solicitation, error } = await supabase
+        .from("solicitations")
+        .insert({
+          workspace_id: opportunity.workspace_id,
+          solicitation_number: opportunity.solicitation_number,
+          title: opportunity.title,
+          agency: opportunity.agency,
+          classification: "federal",
+          due_date: opportunity.response_deadline,
+          status: "analyzing",
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      solicitationId = solicitation?.id || null;
+    }
+
+    const { data: existingProposal } = await supabase
+      .from("proposal_drafts")
+      .select("id")
+      .eq("workspace_id", opportunity.workspace_id)
+      .eq("solicitation_id", solicitationId)
+      .maybeSingle();
+
+    let proposalId = existingProposal?.id || null;
+
+    if (!proposalId) {
+      const { data: proposal, error } = await supabase
+        .from("proposal_drafts")
+        .insert({
+          workspace_id: opportunity.workspace_id,
+          solicitation_id: solicitationId,
+          status: "generating",
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      proposalId = proposal?.id || null;
+    }
 
     return NextResponse.json({
       message: "Opportunity promoted to proposal workflow",
-      solicitationId: solicitation?.id,
+      solicitationId,
+      proposalId,
     });
   } catch (error) {
     console.error("Opportunity analyze API error:", error);

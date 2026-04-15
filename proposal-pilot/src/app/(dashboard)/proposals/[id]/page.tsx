@@ -1,143 +1,529 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PipelineStepper } from "@/components/features/pipeline-stepper";
 import {
-  FileText,
-  FileSearch,
-  AlertTriangle,
   CheckCircle2,
   CircleDashed,
-  AlertCircle,
   Download,
+  FileSearch,
+  Loader2,
+  PenTool,
+  Save,
   Shield,
-  Users,
-  DollarSign,
-  Building2,
+  Sparkles,
+  Target,
+  XCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 
-// Demo data for the 3-column view
-const demoRequirements = [
-  {
-    id: "REQ-001",
-    category: "technical",
-    text: "Contractor shall provide cloud migration services using FedRAMP-authorized platforms.",
-    section_ref: "Section C, para 3.2.1",
-    readiness: "green" as const,
-  },
-  {
-    id: "REQ-002",
-    category: "technical",
-    text: "System shall support 99.9% uptime SLA for all production environments.",
-    section_ref: "Section C, para 3.2.3",
-    readiness: "green" as const,
-  },
-  {
-    id: "REQ-003",
-    category: "management",
-    text: "Contractor shall provide a dedicated Program Manager with PMP certification.",
-    section_ref: "Section C, para 4.1",
-    readiness: "yellow" as const,
-  },
-  {
-    id: "REQ-004",
-    category: "past_performance",
-    text: "Offeror shall demonstrate 3 relevant past performance references within the last 5 years.",
-    section_ref: "Section L, para 5.3",
-    readiness: "green" as const,
-  },
-  {
-    id: "REQ-005",
-    category: "compliance",
-    text: "Contractor must hold an active Top Secret facility clearance.",
-    section_ref: "Section H, para 2.1",
-    readiness: "red" as const,
-  },
-  {
-    id: "REQ-006",
-    category: "pricing",
-    text: "Pricing shall be submitted as a firm-fixed-price for CLIN 0001 through 0004.",
-    section_ref: "Section B, para 1.2",
-    readiness: "yellow" as const,
-  },
-];
+interface ProposalRequirement {
+  id: string;
+  requirement_id: string;
+  category: string;
+  text: string;
+  section_ref?: string | null;
+  readiness_score?: "green" | "yellow" | "red" | null;
+}
 
-const demoDocuments = [
-  { name: "RFP_W911NF-26-R-0042.pdf", pages: 78, uploaded: "2h ago" },
-  { name: "Amendment_001.pdf", pages: 12, uploaded: "1h ago" },
-  { name: "Attachments_SOW.pdf", pages: 34, uploaded: "2h ago" },
-];
+interface ProposalSection {
+  id: string;
+  title: string;
+  content: string;
+  section_order: number;
+  placeholders?: string[] | null;
+  confidence?: "high" | "medium" | "low" | null;
+  review_status: "pending" | "accepted" | "rejected" | "edited";
+  citations?: Array<{
+    id: string;
+    source_document_name?: string | null;
+    excerpt?: string | null;
+  }>;
+}
 
-function readinessDot(readiness: "green" | "yellow" | "red") {
-  const colors = {
-    green: "bg-success",
-    yellow: "bg-warning",
-    red: "bg-danger",
+interface ComplianceFinding {
+  id: string;
+  requirement_id: string;
+  status: "addressed" | "partially_addressed" | "weak" | "unaddressed";
+  draft_location?: string | null;
+  issue?: string | null;
+  suggestion?: string | null;
+}
+
+interface ProposalDetail {
+  id: string;
+  total_word_count?: number | null;
+  proposal_sections: ProposalSection[];
+  compliance_findings: ComplianceFinding[];
+  requirements: ProposalRequirement[];
+  compliance_matrix: Array<{
+    id: string;
+    instruction_ref: string;
+    instruction_text: string;
+    evaluation_ref?: string | null;
+    evaluation_text?: string | null;
+  }>;
+  solicitations: {
+    id: string;
+    title: string;
+    agency?: string | null;
+    classification?: string | null;
+    solicitation_number?: string | null;
+    due_date?: string | null;
+    status: string;
+    win_probability?: number | null;
+    bid_decision_recommendation?: string | null;
+    key_win_factors?: string[] | null;
+    key_risk_factors?: string[] | null;
+    source_documents?: {
+      filename: string;
+      page_count?: number | null;
+      created_at: string;
+    } | null;
   };
-  const labels = {
-    green: "Ready",
-    yellow: "Partial",
-    red: "Gap",
-  };
+}
+
+function getConfidenceBadge(confidence?: ProposalSection["confidence"]) {
+  if (!confidence) {
+    return <Badge variant="secondary">Unknown</Badge>;
+  }
+
+  const className =
+    confidence === "high"
+      ? "bg-success/10 text-success border-success/20"
+      : confidence === "medium"
+      ? "bg-warning/10 text-warning border-warning/20"
+      : "bg-danger/10 text-danger border-danger/20";
+
   return (
-    <div className="flex items-center gap-1.5">
-      <span className={`inline-block h-2.5 w-2.5 rounded-full ${colors[readiness]}`} />
-      <span className="text-xs text-muted-foreground">{labels[readiness]}</span>
-    </div>
+    <Badge className={className}>
+      {confidence.charAt(0).toUpperCase() + confidence.slice(1)} confidence
+    </Badge>
   );
 }
 
-export default async function ProposalDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
+function getReviewBadge(status: ProposalSection["review_status"]) {
+  switch (status) {
+    case "accepted":
+      return (
+        <Badge className="bg-success/10 text-success border-success/20 gap-1">
+          <CheckCircle2 className="h-3 w-3" />
+          Accepted
+        </Badge>
+      );
+    case "rejected":
+      return (
+        <Badge className="bg-danger/10 text-danger border-danger/20 gap-1">
+          <XCircle className="h-3 w-3" />
+          Rejected
+        </Badge>
+      );
+    case "edited":
+      return (
+        <Badge className="bg-primary/10 text-primary border-primary/20 gap-1">
+          <PenTool className="h-3 w-3" />
+          Edited
+        </Badge>
+      );
+    default:
+      return (
+        <Badge variant="secondary" className="gap-1">
+          <CircleDashed className="h-3 w-3" />
+          Pending review
+        </Badge>
+      );
+  }
+}
+
+export default function ProposalDetailPage() {
+  const params = useParams<{ id: string }>();
+  const [proposal, setProposal] = useState<ProposalDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [runningAnalysis, setRunningAnalysis] = useState(false);
+  const [generatingDraft, setGeneratingDraft] = useState(false);
+  const [runningCompliance, setRunningCompliance] = useState(false);
+  const [estimatingWin, setEstimatingWin] = useState(false);
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
+  const [savingSectionId, setSavingSectionId] = useState<string | null>(null);
+  const [exportingMode, setExportingMode] = useState<"clean" | "annotated" | null>(
+    null
+  );
+
+  const fetchProposal = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/proposals/${params.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        setProposal(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch proposal:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [params.id]);
+
+  useEffect(() => {
+    fetchProposal();
+  }, [fetchProposal]);
+
+  const pipelineStages = useMemo(() => {
+    if (!proposal) {
+      return {
+        indexed: "pending",
+        analyzed: "pending",
+        drafted: "pending",
+        compliant: "pending",
+      } as const;
+    }
+
+    return {
+      indexed: proposal.solicitations.source_documents ? "completed" : "pending",
+      analyzed:
+        proposal.requirements.length > 0
+          ? "completed"
+          : proposal.solicitations.status === "analyzing"
+          ? "active"
+          : "pending",
+      drafted:
+        proposal.proposal_sections.length > 0
+          ? "completed"
+          : proposal.requirements.length > 0
+          ? "active"
+          : "pending",
+      compliant:
+        proposal.compliance_findings.length > 0
+          ? "completed"
+          : proposal.proposal_sections.length > 0
+          ? "active"
+          : "pending",
+    } as const;
+  }, [proposal]);
+
+  const complianceSummary = useMemo(() => {
+    if (!proposal) {
+      return null;
+    }
+
+    return proposal.compliance_findings.reduce(
+      (acc, finding) => {
+        acc[finding.status] += 1;
+        return acc;
+      },
+      {
+        addressed: 0,
+        partially_addressed: 0,
+        weak: 0,
+        unaddressed: 0,
+      }
+    );
+  }, [proposal]);
+
+  async function runAnalysis() {
+    if (!proposal) return;
+
+    setRunningAnalysis(true);
+    try {
+      const response = await fetch(
+        `/api/solicitations/${proposal.solicitations.id}/analyze`,
+        {
+          method: "POST",
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Analysis failed");
+      }
+
+      await fetchProposal();
+      toast.success("RFP analysis completed.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Analysis failed");
+    } finally {
+      setRunningAnalysis(false);
+    }
+  }
+
+  async function runDraft() {
+    if (!proposal) return;
+
+    setGeneratingDraft(true);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Draft generation failed");
+      }
+
+      await fetchProposal();
+      toast.success("Draft generated.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Draft generation failed"
+      );
+    } finally {
+      setGeneratingDraft(false);
+    }
+  }
+
+  async function runComplianceCheck() {
+    if (!proposal) return;
+
+    setRunningCompliance(true);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/compliance`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Compliance check failed");
+      }
+
+      await fetchProposal();
+      toast.success("Compliance check completed.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Compliance check failed"
+      );
+    } finally {
+      setRunningCompliance(false);
+    }
+  }
+
+  async function estimateWinProbability() {
+    if (!proposal) return;
+
+    setEstimatingWin(true);
+    try {
+      const response = await fetch(
+        `/api/solicitations/${proposal.solicitations.id}/win-probability`,
+        {
+          method: "POST",
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Win probability estimate failed");
+      }
+
+      await fetchProposal();
+      toast.success("Competitive intelligence updated.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Win probability estimate failed"
+      );
+    } finally {
+      setEstimatingWin(false);
+    }
+  }
+
+  async function saveSection(
+    sectionId: string,
+    payload: { content?: string; reviewStatus?: string }
+  ) {
+    if (!proposal) return;
+
+    setSavingSectionId(sectionId);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sectionId,
+          content: payload.content,
+          reviewStatus: payload.reviewStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Section update failed");
+      }
+
+      setEditingSectionId(null);
+      await fetchProposal();
+      toast.success("Section updated.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Section update failed"
+      );
+    } finally {
+      setSavingSectionId(null);
+    }
+  }
+
+  async function exportProposal(mode: "clean" | "annotated") {
+    if (!proposal) return;
+
+    setExportingMode(mode);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Export failed");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const contentDisposition = response.headers.get("content-disposition");
+      const match = contentDisposition?.match(/filename="([^"]+)"/);
+      const filename =
+        match?.[1] ||
+        `${proposal.solicitations.title || "proposal"}-${mode}.docx`;
+
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+
+      toast.success(
+        mode === "clean"
+          ? "Clean proposal export downloaded."
+          : "Annotated proposal export downloaded."
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Export failed");
+    } finally {
+      setExportingMode(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!proposal) {
+    return (
+      <div className="py-16 text-center">
+        <p className="text-sm text-muted-foreground">Proposal not found.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold tracking-tight">
-            NASA SEWP VI — IT Modernization Services
+            {proposal.solicitations.title}
           </h1>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant="outline" className="text-xs">
-              Federal
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline">
+              {(proposal.solicitations.classification || "unclassified").replace(
+                "_",
+                " "
+              )}
             </Badge>
-            <span className="text-xs text-muted-foreground">
-              W911NF-26-R-0042
-            </span>
-            <span className="text-xs text-muted-foreground">•</span>
-            <span className="text-xs text-muted-foreground">Due June 15, 2026</span>
+            {proposal.solicitations.solicitation_number ? (
+              <span>{proposal.solicitations.solicitation_number}</span>
+            ) : null}
+            {proposal.solicitations.due_date ? (
+              <span>
+                Due {new Date(proposal.solicitations.due_date).toLocaleDateString()}
+              </span>
+            ) : null}
+            <span>{proposal.solicitations.agency || "Unknown agency"}</span>
           </div>
         </div>
-        <Button variant="outline" className="gap-2">
-          <Download className="h-4 w-4" /> Export to Word
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={runAnalysis}
+            disabled={runningAnalysis}
+          >
+            {runningAnalysis ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileSearch className="h-4 w-4" />
+            )}
+            Analyze
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={runDraft}
+            disabled={generatingDraft || proposal.requirements.length === 0}
+          >
+            {generatingDraft ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <PenTool className="h-4 w-4" />
+            )}
+            Generate Draft
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={runComplianceCheck}
+            disabled={runningCompliance || proposal.proposal_sections.length === 0}
+          >
+            {runningCompliance ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Shield className="h-4 w-4" />
+            )}
+            Run Compliance
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+              disabled={exportingMode !== null}
+            >
+              {exportingMode ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Export
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => exportProposal("clean")}>
+                Export Clean Docx
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportProposal("annotated")}>
+                Export Annotated Docx
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
-      {/* Pipeline */}
-      <PipelineStepper
-        stages={{
-          indexed: "completed",
-          analyzed: "completed",
-          drafted: "active",
-          compliant: "pending",
-        }}
-      />
+      <PipelineStepper stages={pipelineStages} />
 
-      {/* Tabs for different views */}
       <Tabs defaultValue="analysis" className="space-y-4">
         <TabsList>
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
@@ -146,281 +532,447 @@ export default async function ProposalDetailPage({
           <TabsTrigger value="competitive-intel">Competitive Intel</TabsTrigger>
         </TabsList>
 
-        {/* Analysis View — 3-column layout */}
-        <TabsContent value="analysis" className="space-y-0">
-          <div className="grid grid-cols-12 gap-4">
-            {/* Left Column: Source Documents */}
-            <div className="col-span-3 space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground px-1">
-                Source Documents
-              </h3>
-              {demoDocuments.map((doc) => (
-                <Card
-                  key={doc.name}
-                  className="cursor-pointer transition-all hover:shadow-sm hover:border-primary/20"
-                >
-                  <CardContent className="flex items-start gap-3 p-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-destructive/10 shrink-0">
-                      <FileText className="h-4 w-4 text-destructive/70" />
+        <TabsContent value="analysis" className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Source Document</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {proposal.solicitations.source_documents ? (
+                  <>
+                    <div className="rounded-lg border p-3">
+                      <p className="font-medium">
+                        {proposal.solicitations.source_documents.filename}
+                      </p>
+                      <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+                        {proposal.solicitations.source_documents.page_count ? (
+                          <p>
+                            {proposal.solicitations.source_documents.page_count} pages
+                          </p>
+                        ) : null}
+                        <p>
+                          Uploaded{" "}
+                          {new Date(
+                            proposal.solicitations.source_documents.created_at
+                          ).toLocaleDateString()}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium truncate">{doc.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {doc.pages} pages • {doc.uploaded}
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                        Requirements
+                      </p>
+                      <p className="mt-1 text-2xl font-bold">
+                        {proposal.requirements.length}
                       </p>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">
+                    No source document attached.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
-            {/* Center Column: Requirements */}
-            <div className="col-span-5 space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <h3 className="text-sm font-semibold text-muted-foreground">
-                  Extracted Requirements
-                </h3>
-                <Badge variant="secondary" className="text-xs">
-                  {demoRequirements.length} found
-                </Badge>
-              </div>
-              {demoRequirements.map((req) => (
-                <Card
-                  key={req.id}
-                  className="transition-all hover:shadow-sm hover:border-primary/10"
-                >
-                  <CardContent className="p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="text-xs font-mono px-1.5">
-                          {req.id}
-                        </Badge>
-                        <Badge variant="secondary" className="text-xs capitalize">
-                          {req.category.replace("_", " ")}
-                        </Badge>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-sm">Extracted Requirements</CardTitle>
+                <Badge variant="secondary">{proposal.requirements.length} found</Badge>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {proposal.requirements.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-6 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      Run the analyzer to extract requirements and build the compliance
+                      matrix.
+                    </p>
+                  </div>
+                ) : (
+                  proposal.requirements.map((requirement) => (
+                    <div key={requirement.id} className="rounded-lg border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="font-mono text-xs">
+                            {requirement.requirement_id}
+                          </Badge>
+                          <Badge variant="secondary" className="capitalize">
+                            {requirement.category.replace("_", " ")}
+                          </Badge>
+                        </div>
+                        {requirement.readiness_score ? (
+                          <Badge
+                            className={
+                              requirement.readiness_score === "green"
+                                ? "bg-success/10 text-success border-success/20"
+                                : requirement.readiness_score === "yellow"
+                                ? "bg-warning/10 text-warning border-warning/20"
+                                : "bg-danger/10 text-danger border-danger/20"
+                            }
+                          >
+                            {requirement.readiness_score}
+                          </Badge>
+                        ) : null}
                       </div>
-                      {readinessDot(req.readiness)}
+                      <p className="mt-2 text-sm leading-relaxed">
+                        {requirement.text}
+                      </p>
+                      {requirement.section_ref ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {requirement.section_ref}
+                        </p>
+                      ) : null}
                     </div>
-                    <p className="text-sm leading-relaxed">{req.text}</p>
-                    <p className="text-xs text-muted-foreground">{req.section_ref}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Right Column: Compliance Matrix */}
-            <div className="col-span-4 space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground px-1">
-                Compliance Matrix
-              </h3>
-              <Card>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">Requirement</TableHead>
-                        <TableHead className="text-xs text-center">Readiness</TableHead>
-                        <TableHead className="text-xs text-right">Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {demoRequirements.map((req) => (
-                        <TableRow key={req.id} className="text-xs">
-                          <TableCell className="font-mono text-xs py-2.5">
-                            {req.id}
-                          </TableCell>
-                          <TableCell className="text-center py-2.5">
-                            <span
-                              className={`inline-block h-2.5 w-2.5 rounded-full ${
-                                req.readiness === "green"
-                                  ? "bg-success"
-                                  : req.readiness === "yellow"
-                                  ? "bg-warning"
-                                  : "bg-danger"
-                              }`}
-                            />
-                          </TableCell>
-                          <TableCell className="text-right py-2.5">
-                            <Badge
-                              variant="secondary"
-                              className={`text-xs ${
-                                req.readiness === "green"
-                                  ? "bg-success/10 text-success"
-                                  : req.readiness === "yellow"
-                                  ? "bg-warning/10 text-warning"
-                                  : "bg-danger/10 text-danger"
-                              }`}
-                            >
-                              {req.readiness === "green"
-                                ? "Ready"
-                                : req.readiness === "yellow"
-                                ? "Partial"
-                                : "Gap"}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-
-              {/* Readiness Summary */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">Readiness Summary</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-success" />
-                      <span className="text-sm">Ready</span>
-                    </div>
-                    <span className="text-sm font-semibold">3</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-warning" />
-                      <span className="text-sm">Partial Match</span>
-                    </div>
-                    <span className="text-sm font-semibold">2</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="h-4 w-4 text-danger" />
-                      <span className="text-sm">Gap</span>
-                    </div>
-                    <span className="text-sm font-semibold">1</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* Draft View */}
-        <TabsContent value="draft">
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                <CircleDashed className="h-5 w-5 text-primary animate-spin" />
-              </div>
-              <p className="text-sm font-medium">Draft generation in progress</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-                ProposalPilot is generating a first draft based on your requirements
-                and company evidence.
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Compliance View */}
-        <TabsContent value="compliance">
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <FileSearch className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Compliance check available after draft review
-              </p>
-              <p className="text-xs text-muted-foreground/70 mt-1 max-w-xs">
-                Complete your draft and run the compliance checker to verify
-                requirement coverage before export.
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Competitive Intelligence View */}
-        <TabsContent value="competitive-intel" className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            {/* Incumbent Contractor */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Incumbent Contractor
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Competitive intelligence will be populated when Perplexity Agent
-                  researches the agency&apos;s recent awards for this NAICS code.
-                  Data sourced from USASpending and FPDS.
-                </p>
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Building2 className="h-3.5 w-3.5" />
-                    <span>Researching incumbent via USASpending...</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Recent Agency Awards */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Shield className="h-4 w-4" />
-                  Recent Agency Awards
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">
-                  Historical awards in this NAICS code from the agency. Powered by
-                  Perplexity Agent API with domain filtering to USASpending, FPDS,
-                  and SAM.gov.
-                </p>
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <FileSearch className="h-3.5 w-3.5" />
-                    <span>Searching FPDS for award history...</span>
-                  </div>
-                </div>
+                  ))
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Pricing Intelligence */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
-                Pricing Intelligence
-              </CardTitle>
+              <CardTitle className="text-sm">Compliance Matrix</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              {proposal.compliance_matrix.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No compliance matrix available yet.
+                </p>
+              ) : (
+                proposal.compliance_matrix.map((entry) => (
+                  <div key={entry.id} className="rounded-lg border p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{entry.instruction_ref}</Badge>
+                      {entry.evaluation_ref ? (
+                        <Badge variant="secondary">{entry.evaluation_ref}</Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-sm">{entry.instruction_text}</p>
+                    {entry.evaluation_text ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {entry.evaluation_text}
+                      </p>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="draft" className="space-y-4">
+          {proposal.proposal_sections.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <PenTool className="h-10 w-10 text-primary/60" />
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Generate a draft to create section-by-section proposal content with
+                  citations and placeholders.
+                </p>
+                <Button
+                  className="mt-4 gap-2"
+                  onClick={runDraft}
+                  disabled={generatingDraft || proposal.requirements.length === 0}
+                >
+                  {generatingDraft ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  Generate Draft
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            proposal.proposal_sections.map((section) => (
+              <Card key={section.id}>
+                <CardHeader className="flex flex-row items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base">{section.title}</CardTitle>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {getConfidenceBadge(section.confidence)}
+                      {getReviewBadge(section.review_status)}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setEditingSectionId(section.id);
+                        setDraftEdits((prev) => ({
+                          ...prev,
+                          [section.id]: section.content,
+                        }));
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        saveSection(section.id, { reviewStatus: "accepted" })
+                      }
+                      disabled={savingSectionId === section.id}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        saveSection(section.id, { reviewStatus: "rejected" })
+                      }
+                      disabled={savingSectionId === section.id}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {editingSectionId === section.id ? (
+                    <div className="space-y-3">
+                      <textarea
+                        className="min-h-[240px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={draftEdits[section.id] || ""}
+                        onChange={(event) =>
+                          setDraftEdits((prev) => ({
+                            ...prev,
+                            [section.id]: event.target.value,
+                          }))
+                        }
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          className="gap-2"
+                          onClick={() =>
+                            saveSection(section.id, {
+                              content: draftEdits[section.id] || "",
+                              reviewStatus: "edited",
+                            })
+                          }
+                          disabled={savingSectionId === section.id}
+                        >
+                          {savingSectionId === section.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Save className="h-4 w-4" />
+                          )}
+                          Save Changes
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => setEditingSectionId(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                      {section.content}
+                    </div>
+                  )}
+
+                  {section.placeholders?.length ? (
+                    <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
+                      <p className="font-medium text-warning">Placeholders</p>
+                      <ul className="mt-2 space-y-1 text-muted-foreground">
+                        {section.placeholders.map((placeholder) => (
+                          <li key={placeholder}>{placeholder}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {section.citations?.length ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Citations
+                      </p>
+                      {section.citations.map((citation) => (
+                        <div
+                          key={citation.id}
+                          className="rounded-lg border p-3 text-xs text-muted-foreground"
+                        >
+                          <p className="font-medium text-foreground">
+                            {citation.source_document_name || "Evidence source"}
+                          </p>
+                          <p className="mt-1">{citation.excerpt || "No excerpt available."}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="compliance" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">Compliance Findings</h2>
               <p className="text-sm text-muted-foreground">
-                Historical contract pricing data will be displayed here when
-                available. The Perplexity Agent researches USASpending award
-                values and FPDS contract modifications to establish competitive
-                price benchmarks.
+                Requirement-by-requirement coverage assessment for the current draft
               </p>
-              <div className="mt-4 grid grid-cols-3 gap-4">
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">
-                    Avg Award Value
+            </div>
+            <Button
+              className="gap-2"
+              onClick={runComplianceCheck}
+              disabled={runningCompliance || proposal.proposal_sections.length === 0}
+            >
+              {runningCompliance ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Shield className="h-4 w-4" />
+              )}
+              Run Compliance
+            </Button>
+          </div>
+
+          {complianceSummary ? (
+            <div className="grid gap-4 sm:grid-cols-4">
+              {[
+                { label: "Addressed", value: complianceSummary.addressed },
+                {
+                  label: "Partial",
+                  value: complianceSummary.partially_addressed,
+                },
+                { label: "Weak", value: complianceSummary.weak },
+                { label: "Unaddressed", value: complianceSummary.unaddressed },
+              ].map((stat) => (
+                <Card key={stat.label}>
+                  <CardContent className="pt-6">
+                    <p className="text-xs text-muted-foreground">{stat.label}</p>
+                    <p className="text-2xl font-bold">{stat.value}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : null}
+
+          <Card>
+            <CardContent className="pt-6">
+              {proposal.compliance_findings.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No compliance findings yet. Generate a draft and run the
+                  compliance checker.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {proposal.compliance_findings.map((finding) => (
+                    <div key={finding.id} className="rounded-lg border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge variant="outline" className="font-mono">
+                          {finding.requirement_id}
+                        </Badge>
+                        <Badge
+                          className={
+                            finding.status === "addressed"
+                              ? "bg-success/10 text-success border-success/20"
+                              : finding.status === "partially_addressed"
+                              ? "bg-warning/10 text-warning border-warning/20"
+                              : finding.status === "weak"
+                              ? "bg-warning/10 text-warning border-warning/20"
+                              : "bg-danger/10 text-danger border-danger/20"
+                          }
+                        >
+                          {finding.status.replace("_", " ")}
+                        </Badge>
+                      </div>
+                      {finding.draft_location ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {finding.draft_location}
+                        </p>
+                      ) : null}
+                      {finding.issue ? (
+                        <p className="mt-2 text-sm">{finding.issue}</p>
+                      ) : null}
+                      {finding.suggestion ? (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {finding.suggestion}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="competitive-intel" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-sm">Bid Recommendation</CardTitle>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={estimateWinProbability}
+                disabled={estimatingWin || proposal.requirements.length === 0}
+              >
+                {estimatingWin ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Target className="h-4 w-4" />
+                )}
+                Update Intel
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Win Probability
                   </p>
-                  <p className="text-lg font-semibold text-muted-foreground/50">
-                    --
+                  <p className="mt-2 text-3xl font-bold">
+                    {proposal.solicitations.win_probability != null
+                      ? `${proposal.solicitations.win_probability}%`
+                      : "—"}
                   </p>
                 </div>
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">
-                    Price Range
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Recommendation
                   </p>
-                  <p className="text-lg font-semibold text-muted-foreground/50">
-                    --
+                  <p className="mt-2 text-base font-semibold capitalize">
+                    {proposal.solicitations.bid_decision_recommendation ||
+                      "Not estimated yet"}
                   </p>
                 </div>
-                <div className="rounded-lg border p-3 text-center">
-                  <p className="text-xs text-muted-foreground mb-1">
-                    Typical Bidders
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Key Win Factors
                   </p>
-                  <p className="text-lg font-semibold text-muted-foreground/50">
-                    --
+                  <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                    {(proposal.solicitations.key_win_factors || []).length > 0 ? (
+                      proposal.solicitations.key_win_factors?.map((factor) => (
+                        <li key={factor}>{factor}</li>
+                      ))
+                    ) : (
+                      <li>No win factors captured yet.</li>
+                    )}
+                  </ul>
+                </div>
+                <div className="rounded-lg border p-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Key Risk Factors
                   </p>
+                  <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                    {(proposal.solicitations.key_risk_factors || []).length > 0 ? (
+                      proposal.solicitations.key_risk_factors?.map((factor) => (
+                        <li key={factor}>{factor}</li>
+                      ))
+                    ) : (
+                      <li>No risk factors captured yet.</li>
+                    )}
+                  </ul>
                 </div>
               </div>
             </CardContent>
