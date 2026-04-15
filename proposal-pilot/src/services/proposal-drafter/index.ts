@@ -204,6 +204,11 @@ Return JSON:
 
   // Save to Supabase
   await supabase
+    .from("proposal_sections")
+    .delete()
+    .eq("proposal_draft_id", proposalId);
+
+  await supabase
     .from("proposal_drafts")
     .update({
       status: "draft",

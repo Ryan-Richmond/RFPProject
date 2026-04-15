@@ -2,8 +2,10 @@
  * Document parsing utilities
  *
  * Converts PDF, DOCX, and TXT files to clean text for processing.
- * Uses pdf-parse and mammoth.js (to be installed in Epic 2).
  */
+
+import mammoth from "mammoth";
+import { PDFParse } from "pdf-parse";
 
 export interface ParsedDocument {
   text: string;
@@ -17,7 +19,6 @@ export interface ParsedDocument {
 
 /**
  * Parse a document file into clean text.
- * Placeholder — will use pdf-parse and mammoth.js when installed.
  */
 export async function parseDocument(
   buffer: Buffer,
@@ -38,40 +39,51 @@ export async function parseDocument(
   }
 }
 
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
 async function parsePDF(buffer: Buffer): Promise<ParsedDocument> {
-  // TODO: Install pdf-parse and implement
-  // const pdfParse = require("pdf-parse");
-  // const data = await pdfParse(buffer);
-  const text = "PDF parsing will be implemented in Epic 2.";
+  const parser = new PDFParse({ data: buffer });
+  const [textResult, infoResult] = await Promise.all([
+    parser.getText(),
+    parser.getInfo({ parsePageInfo: true }),
+  ]);
+  await parser.destroy();
+
+  const text = textResult.text.trim();
+
   return {
     text,
     metadata: {
-      wordCount: text.split(/\s+/).length,
+      title: infoResult.info?.Title || undefined,
+      pageCount: infoResult.total || undefined,
+      wordCount: countWords(text),
       format: "pdf",
     },
   };
 }
 
 async function parseDOCX(buffer: Buffer): Promise<ParsedDocument> {
-  // TODO: Install mammoth and implement
-  // const mammoth = require("mammoth");
-  // const result = await mammoth.extractRawText({ buffer });
-  const text = "DOCX parsing will be implemented in Epic 2.";
+  const result = await mammoth.extractRawText({ buffer });
+  const text = result.value.trim();
+
   return {
     text,
     metadata: {
-      wordCount: text.split(/\s+/).length,
+      wordCount: countWords(text),
       format: "docx",
     },
   };
 }
 
 async function parseTXT(buffer: Buffer): Promise<ParsedDocument> {
-  const text = buffer.toString("utf-8");
+  const text = buffer.toString("utf-8").trim();
   return {
     text,
     metadata: {
-      wordCount: text.split(/\s+/).length,
+      wordCount: countWords(text),
       format: "txt",
     },
   };

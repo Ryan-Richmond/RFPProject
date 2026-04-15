@@ -109,7 +109,7 @@ export default function OpportunityDetailPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        router.push(`/proposals/${data.solicitationId}`);
+        router.push(`/proposals/${data.proposalId || data.solicitationId}`);
       }
     } catch (error) {
       console.error("Failed to promote opportunity:", error);

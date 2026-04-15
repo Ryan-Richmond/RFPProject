@@ -12,6 +12,9 @@
 import { createClient as createServerClient } from "@/lib/supabase/server";
 
 const PERPLEXITY_BASE_URL = "https://api.perplexity.ai";
+const PERPLEXITY_CONTEXT_EMBEDDING_MODEL = "pplx-embed-context-v1-0.6b";
+const PERPLEXITY_CONTEXT_EMBEDDING_DIMENSIONS = 1024;
+const MAX_CONTEXT_EMBEDDING_BATCH_WORDS = 20000;
 
 function getApiKey(): string {
   const key = process.env.PERPLEXITY_API_KEY;
@@ -30,7 +33,13 @@ export interface AgentAPIOptions {
   instructions?: string;
   model?: string;
   tools?: Array<
-    | { type: "web_search" }
+    | {
+        type: "web_search";
+        filters?: {
+          search_domain_filter?: string[];
+          search_after_date_filter?: string;
+        };
+      }
     | { type: "fetch_url" }
     | { type: "function"; function: object }
   >;
@@ -51,6 +60,121 @@ export interface AgentSearchOptions {
   model?: string;
   domainAllowlist?: string[];
   recencyDays?: number;
+}
+
+interface AgentAPIData {
+  id?: string;
+  output_text?: string;
+  citations?: Array<string | { url?: string }>;
+  choices?: Array<{
+    message?: {
+      content?: string;
+    };
+  }>;
+  output?: Array<{
+    content?: Array<{
+      text?: string;
+      annotations?: Array<{
+        url?: string;
+      }>;
+    }>;
+  }>;
+}
+
+interface ContextualizedEmbeddingsResponse {
+  data?: Array<{
+    data?: Array<{
+      embedding?: string;
+    }>;
+  }>;
+}
+
+function formatSearchDate(date: Date): string {
+  return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+}
+
+function extractOutputText(data: AgentAPIData): string {
+  if (typeof data.output_text === "string" && data.output_text.length > 0) {
+    return data.output_text;
+  }
+
+  const outputText = (data.output || [])
+    .flatMap((item) => item.content || [])
+    .map((content) => content.text || "")
+    .filter(Boolean)
+    .join("\n");
+
+  if (outputText.length > 0) {
+    return outputText;
+  }
+
+  return data.choices?.[0]?.message?.content || "";
+}
+
+function extractCitations(data: AgentAPIData): string[] {
+  const citations = new Set<string>();
+
+  for (const citation of data.citations || []) {
+    if (typeof citation === "string") {
+      citations.add(citation);
+      continue;
+    }
+
+    if (citation?.url) {
+      citations.add(citation.url);
+    }
+  }
+
+  for (const outputItem of data.output || []) {
+    for (const contentItem of outputItem.content || []) {
+      for (const annotation of contentItem.annotations || []) {
+        if (annotation.url) {
+          citations.add(annotation.url);
+        }
+      }
+    }
+  }
+
+  return [...citations];
+}
+
+function splitIntoContextualizedEmbeddingBatches(texts: string[]): string[][] {
+  const batches: string[][] = [];
+  let currentBatch: string[] = [];
+  let currentWordCount = 0;
+
+  for (const text of texts) {
+    const normalizedText = text.trim();
+
+    if (!normalizedText) {
+      continue;
+    }
+
+    const wordCount = normalizedText.split(/\s+/).length;
+    const wouldOverflow =
+      currentBatch.length > 0 &&
+      currentWordCount + wordCount > MAX_CONTEXT_EMBEDDING_BATCH_WORDS;
+
+    if (wouldOverflow) {
+      batches.push(currentBatch);
+      currentBatch = [];
+      currentWordCount = 0;
+    }
+
+    currentBatch.push(normalizedText);
+    currentWordCount += wordCount;
+  }
+
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+
+  return batches;
+}
+
+function decodeBase64Int8Embedding(embedding: string): number[] {
+  const bytes = Buffer.from(embedding, "base64");
+  return Array.from(bytes, (value) => (value > 127 ? value - 256 : value));
 }
 
 // ---- Agent Operation Logging ----
@@ -145,11 +269,11 @@ export async function callAgentAPI(
       throw new Error(`Perplexity Agent API error ${response.status}: ${errorText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as AgentAPIData;
 
     const result: AgentAPIResponse = {
-      outputText: data.output?.[0]?.content?.[0]?.text || data.output_text || data.choices?.[0]?.message?.content || "",
-      citations: data.citations || [],
+      outputText: extractOutputText(data),
+      citations: extractCitations(data),
       responseId: data.id || "",
     };
 
@@ -177,20 +301,29 @@ export async function callAgentAPIWithSearch(
   options: AgentSearchOptions,
   operationContext?: { workspaceId?: string; operationType?: string }
 ): Promise<AgentAPIResponse> {
-  const tools: AgentAPIOptions["tools"] = [{ type: "web_search" }];
-  let instructions = options.instructions || "";
+  const filters: NonNullable<Extract<NonNullable<AgentAPIOptions["tools"]>[number], { type: "web_search" }>["filters"]> = {};
 
   if (options.domainAllowlist?.length) {
-    instructions += `\n\nFocus search on these domains: ${options.domainAllowlist.join(", ")}`;
+    filters.search_domain_filter = options.domainAllowlist;
   }
-  if (options.recencyDays) {
-    instructions += `\n\nFocus on results from the last ${options.recencyDays} days.`;
+
+  if (options.recencyDays && options.recencyDays > 0) {
+    const publishedAfter = new Date();
+    publishedAfter.setDate(publishedAfter.getDate() - options.recencyDays);
+    filters.search_after_date_filter = formatSearchDate(publishedAfter);
   }
+
+  const tools: AgentAPIOptions["tools"] = [
+    {
+      type: "web_search",
+      ...(Object.keys(filters).length > 0 ? { filters } : {}),
+    },
+  ];
 
   return callAgentAPI(
     {
       input: options.input,
-      instructions: instructions || undefined,
+      instructions: options.instructions || undefined,
       model: options.model || "sonar-pro",
       tools,
     },
@@ -247,25 +380,59 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 }
 
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  const apiKey = getApiKey();
-
-  const response = await fetch(`${PERPLEXITY_BASE_URL}/embeddings`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "sonar-embedding",
-      input: texts,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Perplexity Embeddings API error ${response.status}: ${errorText}`);
+  if (texts.length === 0) {
+    return [];
   }
 
-  const data = await response.json();
-  return data.data.map((item: { embedding: number[] }) => item.embedding);
+  const apiKey = getApiKey();
+  const batches = splitIntoContextualizedEmbeddingBatches(texts);
+  const embeddings: number[][] = [];
+
+  for (const batch of batches) {
+    const response = await fetch(
+      `${PERPLEXITY_BASE_URL}/v1/contextualizedembeddings`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: PERPLEXITY_CONTEXT_EMBEDDING_MODEL,
+          dimensions: PERPLEXITY_CONTEXT_EMBEDDING_DIMENSIONS,
+          encoding_format: "base64_int8",
+          input: [batch],
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `Perplexity Embeddings API error ${response.status}: ${errorText}`
+      );
+    }
+
+    const data = (await response.json()) as ContextualizedEmbeddingsResponse;
+    const batchEmbeddings =
+      data.data?.[0]?.data?.map((item) => {
+        if (!item.embedding) {
+          throw new Error(
+            "Perplexity Embeddings API returned an unexpected response shape."
+          );
+        }
+
+        return decodeBase64Int8Embedding(item.embedding);
+      }) || [];
+
+    if (batchEmbeddings.length !== batch.length) {
+      throw new Error(
+        "Perplexity Embeddings API returned an unexpected number of embeddings."
+      );
+    }
+
+    embeddings.push(...batchEmbeddings);
+  }
+
+  return embeddings;
 }

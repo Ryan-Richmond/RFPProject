@@ -5,7 +5,8 @@
  * Uses Perplexity Agent API for all AI operations.
  */
 
-import { callAgentAPI, callAgentAPIWithSearch, searchSonar } from "@/lib/ai/perplexity";
+import { callAgentAPI, callAgentAPIWithSearch } from "@/lib/ai/perplexity";
+import { parseDocument } from "@/lib/documents/parser";
 import { createClient } from "@/lib/supabase/server";
 
 // ---- Output Types ----
@@ -101,10 +102,33 @@ export async function analyzeRFP(
   if (!rfpText && solicitation.source_document_id) {
     const { data: doc } = await supabase
       .from("source_documents")
-      .select("extracted_text")
+      .select("*")
       .eq("id", solicitation.source_document_id)
       .single();
+
     rfpText = doc?.extracted_text || "";
+
+    if (!rfpText && doc?.file_path) {
+      const { data: fileData } = await supabase.storage
+        .from("documents")
+        .download(doc.file_path);
+
+      if (fileData) {
+        const buffer = Buffer.from(await fileData.arrayBuffer());
+        const parsedDocument = await parseDocument(buffer, doc.filename);
+        rfpText = parsedDocument.text;
+
+        await supabase
+          .from("source_documents")
+          .update({
+            extracted_text: parsedDocument.text,
+            page_count: parsedDocument.metadata.pageCount || null,
+            processing_status: "complete",
+            processing_error: null,
+          })
+          .eq("id", doc.id);
+      }
+    }
   }
 
   if (!rfpText) {
@@ -244,6 +268,11 @@ Return a JSON object with these fields:
     .eq("id", solicitationId);
 
   // Save extracted requirements
+  await supabase
+    .from("extracted_requirements")
+    .delete()
+    .eq("solicitation_id", solicitationId);
+
   if (requirements.length > 0) {
     await supabase.from("extracted_requirements").insert(
       requirements.map((req) => ({
@@ -261,6 +290,11 @@ Return a JSON object with these fields:
   }
 
   // Save compliance matrix entries
+  await supabase
+    .from("compliance_matrix_entries")
+    .delete()
+    .eq("solicitation_id", solicitationId);
+
   if (complianceMatrix.length > 0) {
     await supabase.from("compliance_matrix_entries").insert(
       complianceMatrix.map((entry) => ({
@@ -370,6 +404,10 @@ Return JSON:
   await supabase
     .from("solicitations")
     .update({
+      win_probability: result.winProbabilityScore,
+      key_win_factors: result.keyWinFactors,
+      key_risk_factors: result.keyRiskFactors,
+      bid_decision_recommendation: result.recommendedBidDecision,
       analysis_result: {
         ...(analysis || {}),
         win_probability: result.winProbabilityScore,
