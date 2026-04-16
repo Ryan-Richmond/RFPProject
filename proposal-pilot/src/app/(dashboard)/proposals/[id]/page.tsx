@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,10 +15,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PipelineStepper } from "@/components/features/pipeline-stepper";
 import {
+  AlertTriangle,
   CheckCircle2,
   CircleDashed,
   Download,
   FileSearch,
+  History,
   Loader2,
   PenTool,
   Save,
@@ -42,6 +45,7 @@ interface ProposalSection {
   title: string;
   content: string;
   section_order: number;
+  requirement_mappings?: string[] | null;
   placeholders?: string[] | null;
   confidence?: "high" | "medium" | "low" | null;
   review_status: "pending" | "accepted" | "rejected" | "edited";
@@ -50,6 +54,26 @@ interface ProposalSection {
     source_document_name?: string | null;
     excerpt?: string | null;
   }>;
+  revisions?: ProposalSectionRevision[];
+}
+
+interface ProposalSectionRevision {
+  id: string;
+  actor_type: "ai" | "user" | "system";
+  change_type:
+    | "generated"
+    | "edited"
+    | "accepted"
+    | "rejected"
+    | "superseded";
+  review_status?: "pending" | "accepted" | "rejected" | "edited" | null;
+  content: string;
+  created_at: string;
+  metadata?: {
+    version?: number;
+    section_order?: number;
+    reason?: string;
+  } | null;
 }
 
 interface ComplianceFinding {
@@ -61,11 +85,22 @@ interface ComplianceFinding {
   suggestion?: string | null;
 }
 
+interface ProposalOutcomeRecord {
+  id: string;
+  outcome: "won" | "lost" | "pending" | "no_bid";
+  contract_value?: number | null;
+  award_date?: string | null;
+  notes?: string | null;
+}
+
 interface ProposalDetail {
   id: string;
+  version?: number | null;
   total_word_count?: number | null;
   proposal_sections: ProposalSection[];
   compliance_findings: ComplianceFinding[];
+  section_revisions?: ProposalSectionRevision[];
+  proposal_outcome?: ProposalOutcomeRecord | null;
   requirements: ProposalRequirement[];
   compliance_matrix: Array<{
     id: string;
@@ -146,6 +181,33 @@ function getReviewBadge(status: ProposalSection["review_status"]) {
   }
 }
 
+function formatRevisionTime(dateString: string) {
+  const date = new Date(dateString);
+  const diffMinutes = Math.floor((Date.now() - date.getTime()) / 60000);
+
+  if (diffMinutes < 1) return "just now";
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}h ago`;
+  return date.toLocaleDateString();
+}
+
+function getRevisionLabel(revision: ProposalSectionRevision) {
+  switch (revision.change_type) {
+    case "generated":
+      return revision.actor_type === "ai" ? "AI draft created" : "Generated";
+    case "edited":
+      return "Edited";
+    case "accepted":
+      return "Accepted";
+    case "rejected":
+      return "Rejected";
+    case "superseded":
+      return "Superseded by regeneration";
+    default:
+      return revision.change_type;
+  }
+}
+
 export default function ProposalDetailPage() {
   const params = useParams<{ id: string }>();
   const [proposal, setProposal] = useState<ProposalDetail | null>(null);
@@ -160,6 +222,13 @@ export default function ProposalDetailPage() {
   const [exportingMode, setExportingMode] = useState<"clean" | "annotated" | null>(
     null
   );
+  const [savingOutcome, setSavingOutcome] = useState(false);
+  const [outcomeForm, setOutcomeForm] = useState({
+    outcome: "pending" as "won" | "lost" | "pending" | "no_bid",
+    contractValue: "",
+    awardDate: "",
+    notes: "",
+  });
 
   const fetchProposal = useCallback(async () => {
     setLoading(true);
@@ -179,6 +248,24 @@ export default function ProposalDetailPage() {
   useEffect(() => {
     fetchProposal();
   }, [fetchProposal]);
+
+  useEffect(() => {
+    if (!proposal) {
+      return;
+    }
+
+    setOutcomeForm({
+      outcome: proposal.proposal_outcome?.outcome || "pending",
+      contractValue:
+        proposal.proposal_outcome?.contract_value != null
+          ? String(proposal.proposal_outcome.contract_value)
+          : "",
+      awardDate: proposal.proposal_outcome?.award_date
+        ? proposal.proposal_outcome.award_date.slice(0, 10)
+        : "",
+      notes: proposal.proposal_outcome?.notes || "",
+    });
+  }, [proposal]);
 
   const pipelineStages = useMemo(() => {
     if (!proposal) {
@@ -230,6 +317,36 @@ export default function ProposalDetailPage() {
         unaddressed: 0,
       }
     );
+  }, [proposal]);
+
+  const draftRiskSummary = useMemo(() => {
+    if (!proposal) {
+      return null;
+    }
+
+    const placeholderCount = proposal.proposal_sections.reduce(
+      (sum, section) => sum + (section.placeholders?.length || 0),
+      0
+    );
+
+    return {
+      placeholders: placeholderCount,
+      lowConfidence: proposal.proposal_sections.filter(
+        (section) => section.confidence === "low"
+      ).length,
+      pendingReview: proposal.proposal_sections.filter(
+        (section) => section.review_status === "pending"
+      ).length,
+      editedSections: proposal.proposal_sections.filter(
+        (section) => section.review_status === "edited"
+      ).length,
+      weakClaims: proposal.compliance_findings.filter(
+        (finding) =>
+          finding.status === "weak" ||
+          finding.status === "partially_addressed" ||
+          finding.status === "unaddressed"
+      ).length,
+    };
   }, [proposal]);
 
   async function runAnalysis() {
@@ -417,6 +534,31 @@ export default function ProposalDetailPage() {
     }
   }
 
+  async function saveOutcome() {
+    if (!proposal) return;
+
+    setSavingOutcome(true);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/outcome`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(outcomeForm),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to save outcome");
+      }
+
+      await fetchProposal();
+      toast.success("Proposal outcome saved.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save outcome");
+    } finally {
+      setSavingOutcome(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
@@ -441,6 +583,7 @@ export default function ProposalDetailPage() {
             {proposal.solicitations.title}
           </h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="secondary">Draft v{proposal.version || 1}</Badge>
             <Badge variant="outline">
               {(proposal.solicitations.classification || "unclassified").replace(
                 "_",
@@ -685,129 +828,264 @@ export default function ProposalDetailPage() {
               </CardContent>
             </Card>
           ) : (
-            proposal.proposal_sections.map((section) => (
-              <Card key={section.id}>
-                <CardHeader className="flex flex-row items-start justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-base">{section.title}</CardTitle>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {getConfidenceBadge(section.confidence)}
-                      {getReviewBadge(section.review_status)}
+            <>
+              {draftRiskSummary ? (
+                <div className="grid gap-4 sm:grid-cols-5">
+                  {[
+                    {
+                      label: "Placeholders",
+                      value: draftRiskSummary.placeholders,
+                    },
+                    {
+                      label: "Low Confidence",
+                      value: draftRiskSummary.lowConfidence,
+                    },
+                    {
+                      label: "Pending Review",
+                      value: draftRiskSummary.pendingReview,
+                    },
+                    {
+                      label: "Edited Sections",
+                      value: draftRiskSummary.editedSections,
+                    },
+                    {
+                      label: "Weak Claims",
+                      value: draftRiskSummary.weakClaims,
+                    },
+                  ].map((stat) => (
+                    <Card key={stat.label}>
+                      <CardContent className="pt-6">
+                        <p className="text-xs text-muted-foreground">
+                          {stat.label}
+                        </p>
+                        <p className="text-2xl font-bold">{stat.value}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : null}
+
+              {draftRiskSummary &&
+              (draftRiskSummary.placeholders > 0 ||
+                draftRiskSummary.lowConfidence > 0 ||
+                draftRiskSummary.weakClaims > 0) ? (
+                <div className="rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
+                    <div>
+                      <p className="font-medium text-warning">
+                        Review attention needed
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        This draft still contains placeholders, low-confidence
+                        sections, or weak compliance coverage. Review the flagged
+                        sections before export.
+                      </p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setEditingSectionId(section.id);
-                        setDraftEdits((prev) => ({
-                          ...prev,
-                          [section.id]: section.content,
-                        }));
-                      }}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        saveSection(section.id, { reviewStatus: "accepted" })
-                      }
-                      disabled={savingSectionId === section.id}
-                    >
-                      Accept
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        saveSection(section.id, { reviewStatus: "rejected" })
-                      }
-                      disabled={savingSectionId === section.id}
-                    >
-                      Reject
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {editingSectionId === section.id ? (
-                    <div className="space-y-3">
-                      <textarea
-                        className="min-h-[240px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={draftEdits[section.id] || ""}
-                        onChange={(event) =>
-                          setDraftEdits((prev) => ({
-                            ...prev,
-                            [section.id]: event.target.value,
-                          }))
-                        }
-                      />
-                      <div className="flex gap-2">
+                </div>
+              ) : null}
+
+              {proposal.proposal_sections.map((section) => {
+                const sectionComplianceRisks = proposal.compliance_findings.filter(
+                  (finding) =>
+                    section.requirement_mappings?.includes(finding.requirement_id) &&
+                    (finding.status === "weak" ||
+                      finding.status === "partially_addressed" ||
+                      finding.status === "unaddressed")
+                );
+
+                return (
+                  <Card key={section.id}>
+                    <CardHeader className="flex flex-row items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-base">{section.title}</CardTitle>
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {getConfidenceBadge(section.confidence)}
+                          {getReviewBadge(section.review_status)}
+                          <Badge variant="secondary">
+                            {section.revisions?.length || 0} revisions
+                          </Badge>
+                        </div>
+                        {section.requirement_mappings?.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {section.requirement_mappings.map((mapping) => (
+                              <Badge key={mapping} variant="outline">
+                                {mapping}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
                         <Button
-                          className="gap-2"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setEditingSectionId(section.id);
+                            setDraftEdits((prev) => ({
+                              ...prev,
+                              [section.id]: section.content,
+                            }));
+                          }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
                           onClick={() =>
-                            saveSection(section.id, {
-                              content: draftEdits[section.id] || "",
-                              reviewStatus: "edited",
-                            })
+                            saveSection(section.id, { reviewStatus: "accepted" })
                           }
                           disabled={savingSectionId === section.id}
                         >
-                          {savingSectionId === section.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Save className="h-4 w-4" />
-                          )}
-                          Save Changes
+                          Accept
                         </Button>
                         <Button
-                          variant="ghost"
-                          onClick={() => setEditingSectionId(null)}
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            saveSection(section.id, { reviewStatus: "rejected" })
+                          }
+                          disabled={savingSectionId === section.id}
                         >
-                          Cancel
+                          Reject
                         </Button>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {section.content}
-                    </div>
-                  )}
-
-                  {section.placeholders?.length ? (
-                    <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
-                      <p className="font-medium text-warning">Placeholders</p>
-                      <ul className="mt-2 space-y-1 text-muted-foreground">
-                        {section.placeholders.map((placeholder) => (
-                          <li key={placeholder}>{placeholder}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {section.citations?.length ? (
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Citations
-                      </p>
-                      {section.citations.map((citation) => (
-                        <div
-                          key={citation.id}
-                          className="rounded-lg border p-3 text-xs text-muted-foreground"
-                        >
-                          <p className="font-medium text-foreground">
-                            {citation.source_document_name || "Evidence source"}
-                          </p>
-                          <p className="mt-1">{citation.excerpt || "No excerpt available."}</p>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {editingSectionId === section.id ? (
+                        <div className="space-y-3">
+                          <textarea
+                            className="min-h-[240px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            value={draftEdits[section.id] || ""}
+                            onChange={(event) =>
+                              setDraftEdits((prev) => ({
+                                ...prev,
+                                [section.id]: event.target.value,
+                              }))
+                            }
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              className="gap-2"
+                              onClick={() =>
+                                saveSection(section.id, {
+                                  content: draftEdits[section.id] || "",
+                                  reviewStatus: "edited",
+                                })
+                              }
+                              disabled={savingSectionId === section.id}
+                            >
+                              {savingSectionId === section.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Save className="h-4 w-4" />
+                              )}
+                              Save Changes
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              onClick={() => setEditingSectionId(null)}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </CardContent>
-              </Card>
-            ))
+                      ) : (
+                        <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                          {section.content}
+                        </div>
+                      )}
+
+                      {sectionComplianceRisks.length ? (
+                        <div className="rounded-lg border border-danger/30 bg-danger/5 p-3 text-sm">
+                          <p className="font-medium text-danger">
+                            Compliance risks tied to this section
+                          </p>
+                          <ul className="mt-2 space-y-2 text-muted-foreground">
+                            {sectionComplianceRisks.map((finding) => (
+                              <li key={finding.id}>
+                                <span className="font-medium text-foreground">
+                                  {finding.requirement_id}
+                                </span>
+                                {": "}
+                                {finding.issue || finding.status}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {section.placeholders?.length ? (
+                        <div className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-sm">
+                          <p className="font-medium text-warning">Placeholders</p>
+                          <ul className="mt-2 space-y-1 text-muted-foreground">
+                            {section.placeholders.map((placeholder) => (
+                              <li key={placeholder}>{placeholder}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {section.revisions?.length ? (
+                        <details className="rounded-lg border p-3">
+                          <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium">
+                            <History className="h-4 w-4" />
+                            Review history
+                          </summary>
+                          <div className="mt-3 space-y-3">
+                            {section.revisions.slice(0, 6).map((revision) => (
+                              <div
+                                key={revision.id}
+                                className="rounded-lg border bg-muted/30 p-3 text-xs"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline">
+                                    {getRevisionLabel(revision)}
+                                  </Badge>
+                                  <Badge variant="secondary">
+                                    {revision.actor_type}
+                                  </Badge>
+                                  <span className="text-muted-foreground">
+                                    {formatRevisionTime(revision.created_at)}
+                                  </span>
+                                </div>
+                                <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                                  {revision.content.slice(0, 260)}
+                                  {revision.content.length > 260 ? "..." : ""}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      ) : null}
+
+                      {section.citations?.length ? (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Citations
+                          </p>
+                          {section.citations.map((citation) => (
+                            <div
+                              key={citation.id}
+                              className="rounded-lg border p-3 text-xs text-muted-foreground"
+                            >
+                              <p className="font-medium text-foreground">
+                                {citation.source_document_name || "Evidence source"}
+                              </p>
+                              <p className="mt-1">
+                                {citation.excerpt || "No excerpt available."}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </>
           )}
         </TabsContent>
 
@@ -974,6 +1252,120 @@ export default function ProposalDetailPage() {
                     )}
                   </ul>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Outcome Tracking</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Proposal Outcome
+                  </p>
+                  <select
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={outcomeForm.outcome}
+                    onChange={(event) =>
+                      setOutcomeForm((prev) => ({
+                        ...prev,
+                        outcome: event.target.value as
+                          | "won"
+                          | "lost"
+                          | "pending"
+                          | "no_bid",
+                      }))
+                    }
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="won">Won</option>
+                    <option value="lost">Lost</option>
+                    <option value="no_bid">No Bid</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Award Date
+                  </p>
+                  <Input
+                    type="date"
+                    value={outcomeForm.awardDate}
+                    onChange={(event) =>
+                      setOutcomeForm((prev) => ({
+                        ...prev,
+                        awardDate: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Contract Value
+                  </p>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={outcomeForm.contractValue}
+                    onChange={(event) =>
+                      setOutcomeForm((prev) => ({
+                        ...prev,
+                        contractValue: event.target.value,
+                      }))
+                    }
+                    placeholder="1250000"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Current Recommendation
+                  </p>
+                  <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+                    {proposal.solicitations.bid_decision_recommendation ||
+                      "No recommendation yet"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Post-Submission Notes
+                </p>
+                <textarea
+                  className="min-h-[140px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={outcomeForm.notes}
+                  onChange={(event) =>
+                    setOutcomeForm((prev) => ({
+                      ...prev,
+                      notes: event.target.value,
+                    }))
+                  }
+                  placeholder="Capture bidder strategy, customer feedback, award context, or why this became a no-bid."
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3 text-sm">
+                <div>
+                  <p className="font-medium">Outcome record</p>
+                  <p className="text-muted-foreground">
+                    Save bid/no-bid decisions, award results, and notes for later reporting.
+                  </p>
+                </div>
+                <Button
+                  className="gap-2"
+                  onClick={saveOutcome}
+                  disabled={savingOutcome}
+                >
+                  {savingOutcome ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Save Outcome
+                </Button>
               </div>
             </CardContent>
           </Card>

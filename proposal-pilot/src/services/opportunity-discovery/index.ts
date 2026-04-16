@@ -14,6 +14,9 @@ export interface DiscoveryResult {
   runId: string;
   opportunitiesFound: number;
   opportunitiesScored: number;
+  opportunitiesCreated: number;
+  opportunitiesRefreshed: number;
+  opportunitiesSkipped: number;
   opportunities: DiscoveredOpportunity[];
 }
 
@@ -70,11 +73,90 @@ type OpportunityUpsertPayload = {
   raw_data: Record<string, unknown>;
 };
 
+type OpportunitySaveResult = {
+  id: string | null;
+  action: "created" | "refreshed" | "skipped";
+};
+
+function normalizeSolicitationNumber(value?: string | null): string | null {
+  const normalized = value
+    ?.replace(/^solicitation\s*(number|#)?\s*[:#-]?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+
+  return normalized || null;
+}
+
+function normalizeSourceUrl(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  try {
+    const url = new URL(trimmed);
+    const trackingParams = new Set([
+      "utm_source",
+      "utm_medium",
+      "utm_campaign",
+      "utm_term",
+      "utm_content",
+      "fbclid",
+      "gclid",
+    ]);
+
+    url.hash = "";
+    url.hostname = url.hostname.toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+
+    for (const param of [...url.searchParams.keys()]) {
+      if (trackingParams.has(param.toLowerCase())) {
+        url.searchParams.delete(param);
+      }
+    }
+
+    url.searchParams.sort();
+    return url.toString();
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+function normalizeTitle(value?: string | null): string {
+  return value?.replace(/\s+/g, " ").trim() || "Untitled Opportunity";
+}
+
+function normalizeAgency(value?: string | null): string {
+  return value?.replace(/\s+/g, " ").trim() || "Unknown Agency";
+}
+
+function buildDiscoveryIdentity(payload: OpportunityUpsertPayload): string {
+  if (payload.solicitation_number) {
+    return `${payload.source}:solicitation:${payload.solicitation_number}`;
+  }
+
+  if (payload.source_url) {
+    return `${payload.source}:url:${payload.source_url}`;
+  }
+
+  return [
+    payload.source,
+    "fallback",
+    payload.title.toLowerCase(),
+    payload.agency.toLowerCase(),
+    payload.response_deadline || "",
+  ].join(":");
+}
+
 async function findExistingOpportunityId(
   workspaceId: string,
   source: string,
-  solicitationNumber?: string,
-  sourceUrl?: string
+  solicitationNumber?: string | null,
+  sourceUrl?: string | null,
+  fallback?: {
+    title: string;
+    agency: string;
+    responseDeadline?: string | null;
+  }
 ): Promise<string | null> {
   const supabase = await createClient();
 
@@ -108,26 +190,92 @@ async function findExistingOpportunityId(
     }
   }
 
+  if (fallback?.title && fallback.agency) {
+    let query = supabase
+      .from("opportunities")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("source", source)
+      .eq("title", fallback.title)
+      .eq("agency", fallback.agency)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (fallback.responseDeadline) {
+      query = query.eq("response_deadline", fallback.responseDeadline);
+    }
+
+    const { data } = await query;
+
+    if (data?.[0]?.id) {
+      return data[0].id;
+    }
+  }
+
   return null;
 }
 
 async function saveDiscoveredOpportunity(
   payload: OpportunityUpsertPayload
-): Promise<string | null> {
+): Promise<OpportunitySaveResult> {
   const supabase = await createClient();
+  const normalizedPayload: OpportunityUpsertPayload = {
+    ...payload,
+    solicitation_number: normalizeSolicitationNumber(payload.solicitation_number),
+    source_url: normalizeSourceUrl(payload.source_url),
+    title: normalizeTitle(payload.title),
+    agency: normalizeAgency(payload.agency),
+  };
+
   const existingId = await findExistingOpportunityId(
-    payload.workspace_id,
-    payload.source,
-    payload.solicitation_number || undefined,
-    payload.source_url || undefined
+    normalizedPayload.workspace_id,
+    normalizedPayload.source,
+    normalizedPayload.solicitation_number,
+    normalizedPayload.source_url,
+    {
+      title: normalizedPayload.title,
+      agency: normalizedPayload.agency,
+      responseDeadline: normalizedPayload.response_deadline,
+    }
   );
 
   const query = existingId
-    ? supabase.from("opportunities").update(payload).eq("id", existingId)
-    : supabase.from("opportunities").insert(payload);
+    ? supabase.from("opportunities").update(normalizedPayload).eq("id", existingId)
+    : supabase.from("opportunities").insert(normalizedPayload);
 
-  const { data } = await query.select("id").single();
-  return data?.id || null;
+  const { data, error } = await query.select("id").single();
+
+  if (error) {
+    const recoveredId = await findExistingOpportunityId(
+      normalizedPayload.workspace_id,
+      normalizedPayload.source,
+      normalizedPayload.solicitation_number,
+      normalizedPayload.source_url,
+      {
+        title: normalizedPayload.title,
+        agency: normalizedPayload.agency,
+        responseDeadline: normalizedPayload.response_deadline,
+      }
+    );
+
+    if (recoveredId) {
+      const { data: recovered } = await supabase
+        .from("opportunities")
+        .update(normalizedPayload)
+        .eq("id", recoveredId)
+        .select("id")
+        .single();
+
+      return { id: recovered?.id || recoveredId, action: "refreshed" };
+    }
+
+    return { id: null, action: "skipped" };
+  }
+
+  return {
+    id: data?.id || null,
+    action: existingId ? "refreshed" : "created",
+  };
 }
 
 // ---- Service Functions ----
@@ -235,16 +383,19 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
       );
     }
 
-    // Save to database
-    const savedOpportunities: DiscoveredOpportunity[] = [];
+    // Normalize and collapse duplicates inside a single discovery response before writing.
+    let skippedDuplicateCount = 0;
+    const dedupedOpportunities = new Map<string, OpportunityUpsertPayload>();
 
     for (const opp of rawOpportunities) {
-      const savedId = await saveDiscoveredOpportunity({
+      const payload: OpportunityUpsertPayload = {
         workspace_id: workspaceId,
         source: "sam_gov",
-        solicitation_number: (opp.solicitation_number as string) || null,
-        title: (opp.title as string) || "Untitled Opportunity",
-        agency: (opp.agency as string) || "Unknown Agency",
+        solicitation_number: normalizeSolicitationNumber(
+          (opp.solicitation_number as string) || null
+        ),
+        title: normalizeTitle((opp.title as string) || null),
+        agency: normalizeAgency((opp.agency as string) || null),
         posted_date: (opp.posted_date as string) || null,
         response_deadline: (opp.response_deadline as string) || null,
         naics_codes: (opp.naics_codes as string[]) || [],
@@ -253,26 +404,47 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
         estimated_value_max: (opp.estimated_value_max as number) || null,
         contract_type: (opp.contract_type as string) || null,
         description: (opp.description as string) || null,
-        source_url: (opp.source_url as string) || null,
+        source_url: normalizeSourceUrl((opp.source_url as string) || null),
         raw_data: opp,
-      });
+      };
 
-      if (savedId) {
+      const identity = buildDiscoveryIdentity(payload);
+      if (dedupedOpportunities.has(identity)) {
+        skippedDuplicateCount += 1;
+        continue;
+      }
+
+      dedupedOpportunities.set(identity, payload);
+    }
+
+    // Save to database
+    const savedOpportunities: DiscoveredOpportunity[] = [];
+    let createdCount = 0;
+    let refreshedCount = 0;
+    let skippedCount = skippedDuplicateCount;
+
+    for (const opp of dedupedOpportunities.values()) {
+      const saveResult = await saveDiscoveredOpportunity(opp);
+      if (saveResult.action === "created") createdCount += 1;
+      if (saveResult.action === "refreshed") refreshedCount += 1;
+      if (saveResult.action === "skipped") skippedCount += 1;
+
+      if (saveResult.id) {
         savedOpportunities.push({
-          id: savedId,
-          source: "sam_gov",
-          solicitationNumber: opp.solicitation_number as string | undefined,
-          title: (opp.title as string) || "Untitled Opportunity",
-          agency: (opp.agency as string) || "Unknown Agency",
-          postedDate: opp.posted_date as string | undefined,
-          responseDeadline: opp.response_deadline as string | undefined,
-          naicsCodes: (opp.naics_codes as string[]) || [],
-          setAsideType: opp.set_aside_type as string | undefined,
-          estimatedValueMin: opp.estimated_value_min as number | undefined,
-          estimatedValueMax: opp.estimated_value_max as number | undefined,
-          contractType: opp.contract_type as string | undefined,
-          description: opp.description as string | undefined,
-          sourceUrl: opp.source_url as string | undefined,
+          id: saveResult.id,
+          source: opp.source,
+          solicitationNumber: opp.solicitation_number || undefined,
+          title: opp.title,
+          agency: opp.agency,
+          postedDate: opp.posted_date || undefined,
+          responseDeadline: opp.response_deadline || undefined,
+          naicsCodes: opp.naics_codes,
+          setAsideType: opp.set_aside_type || undefined,
+          estimatedValueMin: opp.estimated_value_min || undefined,
+          estimatedValueMax: opp.estimated_value_max || undefined,
+          contractType: opp.contract_type || undefined,
+          description: opp.description || undefined,
+          sourceUrl: opp.source_url || undefined,
         });
       }
     }
@@ -283,6 +455,9 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
       .update({
         status: "completed",
         opportunities_found: savedOpportunities.length,
+        opportunities_created: createdCount,
+        opportunities_refreshed: refreshedCount,
+        opportunities_skipped: skippedCount,
         completed_at: new Date().toISOString(),
       })
       .eq("id", runId);
@@ -291,6 +466,9 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
       runId,
       opportunitiesFound: savedOpportunities.length,
       opportunitiesScored: 0,
+      opportunitiesCreated: createdCount,
+      opportunitiesRefreshed: refreshedCount,
+      opportunitiesSkipped: skippedCount,
       opportunities: savedOpportunities,
     };
   } catch (error) {
@@ -473,7 +651,7 @@ Return JSON:
  */
 export async function runFullDiscoveryCycle(
   workspaceId: string
-): Promise<void> {
+): Promise<DiscoveryResult> {
   // Step 1: Discover
   const discovery = await discoverOpportunities(workspaceId);
 
@@ -494,4 +672,9 @@ export async function runFullDiscoveryCycle(
     .from("discovery_runs")
     .update({ opportunities_scored: scored })
     .eq("id", discovery.runId);
+
+  return {
+    ...discovery,
+    opportunitiesScored: scored,
+  };
 }

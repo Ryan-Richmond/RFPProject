@@ -15,6 +15,7 @@ import {
   ArrowRight,
   RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
 
 interface Opportunity {
   id: string;
@@ -108,14 +109,24 @@ export default function OpportunitiesPage() {
   async function handleDiscover() {
     setDiscovering(true);
     try {
-      await fetch("/api/opportunities/discover", { method: "POST" });
-      // Poll for results after a short delay
-      setTimeout(() => {
-        fetchOpportunities();
-        setDiscovering(false);
-      }, 3000);
+      const response = await fetch("/api/opportunities/discover", { method: "POST" });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Discovery failed");
+      }
+
+      const result = await response.json();
+      toast.success(
+        `Discovery complete: ${result.opportunitiesCreated || 0} new, ${
+          result.opportunitiesRefreshed || 0
+        } refreshed, ${result.opportunitiesSkipped || 0} skipped.`
+      );
+      await fetchOpportunities();
     } catch (error) {
       console.error("Discovery failed:", error);
+      toast.error(error instanceof Error ? error.message : "Discovery failed");
+    } finally {
       setDiscovering(false);
     }
   }

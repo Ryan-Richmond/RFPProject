@@ -33,7 +33,9 @@ export async function POST(
 
     const { data: section } = await supabase
       .from("proposal_sections")
-      .select("id")
+      .select(
+        "id, title, content, review_status, requirement_mappings, placeholders, confidence, section_order"
+      )
       .eq("id", sectionId)
       .eq("proposal_draft_id", id)
       .eq("workspace_id", workspaceId)
@@ -43,12 +45,22 @@ export async function POST(
       return NextResponse.json({ error: "Section not found" }, { status: 404 });
     }
 
+    const contentChanged =
+      typeof content === "string" && content !== section.content;
+    const statusChanged = Boolean(
+      reviewStatus && reviewStatus !== section.review_status
+    );
+
+    if (!contentChanged && !statusChanged) {
+      return NextResponse.json({ section });
+    }
+
     const payload: Record<string, unknown> = {};
-    if (typeof content === "string") {
+    if (contentChanged && typeof content === "string") {
       payload.content = content;
       payload.word_count = content.trim() ? content.trim().split(/\s+/).length : 0;
     }
-    if (reviewStatus) {
+    if (statusChanged && reviewStatus) {
       payload.review_status = reviewStatus;
     }
 
@@ -70,6 +82,52 @@ export async function POST(
       .update({ status: "in_review" })
       .eq("id", id)
       .eq("workspace_id", workspaceId);
+
+    const actorUserId = user.id === "dev-user" ? null : user.id;
+    const changeType = contentChanged
+      ? "edited"
+      : reviewStatus === "accepted"
+      ? "accepted"
+      : reviewStatus === "rejected"
+      ? "rejected"
+      : "edited";
+
+    await supabase.from("proposal_section_revisions").insert({
+      proposal_draft_id: id,
+      proposal_section_id: updated.id,
+      workspace_id: workspaceId,
+      actor_type: "user",
+      actor_user_id: actorUserId,
+      change_type: changeType,
+      section_title: updated.title,
+      content: updated.content,
+      review_status: updated.review_status,
+      metadata: {
+        previous_review_status: section.review_status,
+        previous_word_count: section.content.trim()
+          ? section.content.trim().split(/\s+/).length
+          : 0,
+        section_order: section.section_order,
+        requirement_mappings: section.requirement_mappings || [],
+        placeholders: section.placeholders || [],
+        confidence: section.confidence || null,
+      },
+    });
+
+    await supabase.from("audit_logs").insert({
+      workspace_id: workspaceId,
+      user_id: actorUserId,
+      action: "proposal_section_review_updated",
+      entity_type: "proposal_section",
+      entity_id: updated.id,
+      metadata: {
+        proposal_draft_id: id,
+        change_type: changeType,
+        previous_review_status: section.review_status,
+        next_review_status: updated.review_status,
+        content_changed: contentChanged,
+      },
+    });
 
     return NextResponse.json({ section: updated });
   } catch (error) {
