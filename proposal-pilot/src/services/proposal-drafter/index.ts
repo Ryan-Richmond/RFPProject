@@ -35,6 +35,17 @@ export interface Citation {
   excerpt: string;
 }
 
+interface ExistingSectionSnapshot {
+  id: string;
+  title: string;
+  content: string;
+  review_status: "pending" | "accepted" | "rejected" | "edited";
+  requirement_mappings?: string[] | null;
+  placeholders?: string[] | null;
+  confidence?: "high" | "medium" | "low" | null;
+  section_order: number;
+}
+
 // ---- Service Functions ----
 
 /**
@@ -58,6 +69,15 @@ export async function generateDraft(
     .single();
 
   if (!draft) throw new Error(`Proposal draft ${proposalId} not found`);
+
+  const { data: existingSections } = await supabase
+    .from("proposal_sections")
+    .select(
+      "id, title, content, review_status, requirement_mappings, placeholders, confidence, section_order"
+    )
+    .eq("proposal_draft_id", proposalId)
+    .eq("workspace_id", workspaceId)
+    .order("section_order", { ascending: true });
 
   // 2. Fetch requirements
   const { data: requirements } = await supabase
@@ -201,6 +221,39 @@ Return JSON:
   }
 
   const totalWordCount = sections.reduce((sum, s) => sum + s.word_count, 0);
+  const nextVersion =
+    existingSections && existingSections.length > 0
+      ? (draft.version || 1) + 1
+      : draft.version || 1;
+
+  if (existingSections && existingSections.length > 0) {
+    const { error: revisionSnapshotError } = await supabase
+      .from("proposal_section_revisions")
+      .insert(
+        (existingSections as ExistingSectionSnapshot[]).map((section) => ({
+          proposal_draft_id: proposalId,
+          proposal_section_id: section.id,
+          workspace_id: workspaceId,
+          actor_type: "system",
+          change_type: "superseded",
+          section_title: section.title,
+          content: section.content,
+          review_status: section.review_status,
+          metadata: {
+            version: draft.version || 1,
+            section_order: section.section_order,
+            requirement_mappings: section.requirement_mappings || [],
+            placeholders: section.placeholders || [],
+            confidence: section.confidence || null,
+            reason: "draft_regenerated",
+          },
+        }))
+      );
+
+    if (revisionSnapshotError) {
+      throw revisionSnapshotError;
+    }
+  }
 
   // Save to Supabase
   await supabase
@@ -212,9 +265,25 @@ Return JSON:
     .from("proposal_drafts")
     .update({
       status: "draft",
+      version: nextVersion,
       total_word_count: totalWordCount,
     })
     .eq("id", proposalId);
+
+  await supabase.from("audit_logs").insert({
+    workspace_id: workspaceId,
+    action: existingSections && existingSections.length > 0
+      ? "proposal_draft_regenerated"
+      : "proposal_draft_generated",
+    entity_type: "proposal_draft",
+    entity_id: proposalId,
+    metadata: {
+      version: nextVersion,
+      sections_created: sections.length,
+      total_word_count: totalWordCount,
+      unresolved_requirements: unresolvedRequirements,
+    },
+  });
 
   // Save sections
   for (let i = 0; i < sections.length; i++) {
@@ -246,6 +315,30 @@ Return JSON:
           excerpt: c.excerpt,
         }))
       );
+    }
+
+    if (savedSection) {
+      await supabase.from("proposal_section_revisions").insert({
+        proposal_draft_id: proposalId,
+        proposal_section_id: savedSection.id,
+        workspace_id: workspaceId,
+        actor_type: "ai",
+        change_type: "generated",
+        section_title: section.title,
+        content: section.content,
+        review_status: "pending",
+        metadata: {
+          version: nextVersion,
+          section_order: i + 1,
+          requirement_mappings: section.requirement_mappings,
+          placeholders: section.placeholders,
+          confidence: section.confidence,
+          citations: section.citations.map((citation) => ({
+            evidence_id: citation.evidence_id,
+            source_document: citation.source_document,
+          })),
+        },
+      });
     }
   }
 
