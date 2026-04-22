@@ -1,0 +1,5 @@
+{
+  "installCommand": "npm --prefix proposal-pilot ci",
+  "buildCommand": "npm --prefix proposal-pilot run build",
+  "outputDirectory": "proposal-pilot/.next"
+}

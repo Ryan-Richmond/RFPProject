@@ -112,6 +112,8 @@ export default function WorkspacePage() {
   const [proposals, setProposals] = useState<ProposalWorkflow[]>([]);
   const [operations, setOperations] = useState<AgentOperationsPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
+  const [seedError, setSeedError] = useState<string | null>(null);
 
   const fetchWorkspaceData = useCallback(async () => {
     setLoading(true);
@@ -146,6 +148,25 @@ export default function WorkspacePage() {
   useEffect(() => {
     fetchWorkspaceData();
   }, [fetchWorkspaceData]);
+
+  async function handleSeedMockData() {
+    setSeeding(true);
+    setSeedError(null);
+    try {
+      const response = await fetch("/api/mock/seed", { method: "POST" });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to load mock data");
+      }
+
+      await fetchWorkspaceData();
+    } catch (error) {
+      setSeedError(error instanceof Error ? error.message : "Failed to load mock data");
+    } finally {
+      setSeeding(false);
+    }
+  }
 
   const stats = useMemo(() => {
     const indexedChunks = documents.reduce(
@@ -198,6 +219,20 @@ export default function WorkspacePage() {
           <Button variant="ghost" size="sm" onClick={fetchWorkspaceData}>
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSeedMockData}
+            disabled={seeding}
+            className="gap-2"
+          >
+            {seeding ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            Load Demo
+          </Button>
           <Link href="/proposals">
             <Button className="gap-2">
               <Upload className="h-4 w-4" /> New Proposal
@@ -205,6 +240,12 @@ export default function WorkspacePage() {
           </Link>
         </div>
       </div>
+
+      {seedError ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {seedError}
+        </div>
+      ) : null}
 
       <PipelineStepper stages={pipelineStages} />
 

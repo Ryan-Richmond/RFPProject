@@ -10,6 +10,12 @@
  */
 
 import { createClient as createServerClient } from "@/lib/supabase/server";
+import {
+  generateMockEmbedding,
+  getMockAgentResponse,
+  getMockSonarResponse,
+  isAIMockMode,
+} from "./mock";
 
 const PERPLEXITY_BASE_URL = "https://api.perplexity.ai";
 const PERPLEXITY_CONTEXT_EMBEDDING_MODEL = "pplx-embed-context-v1-0.6b";
@@ -232,7 +238,6 @@ export async function callAgentAPI(
   options: AgentAPIOptions,
   operationContext?: { workspaceId?: string; operationType?: string }
 ): Promise<AgentAPIResponse> {
-  const apiKey = getApiKey();
   const model = options.model || "anthropic/claude-sonnet-4-6";
   const startTime = Date.now();
 
@@ -242,6 +247,18 @@ export async function callAgentAPI(
     inputSummary: options.input,
     modelUsed: model,
   });
+
+  if (isAIMockMode()) {
+    const result = getMockAgentResponse(options, operationContext);
+    await completeAgentOperation(opId, {
+      outputSummary: `[MOCK] ${result.outputText}`,
+      citationsCount: result.citations.length,
+      durationMs: Date.now() - startTime,
+    });
+    return result;
+  }
+
+  const apiKey = getApiKey();
 
   try {
     const body: Record<string, unknown> = {
@@ -336,6 +353,10 @@ export async function callAgentAPIWithSearch(
 export async function searchSonar(
   query: string
 ): Promise<{ answer: string; citations: string[] }> {
+  if (isAIMockMode()) {
+    return getMockSonarResponse(query);
+  }
+
   const apiKey = getApiKey();
 
   const response = await fetch(`${PERPLEXITY_BASE_URL}/chat/completions`, {
@@ -382,6 +403,12 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) {
     return [];
+  }
+
+  if (isAIMockMode()) {
+    return texts.map((text) =>
+      generateMockEmbedding(text, PERPLEXITY_CONTEXT_EMBEDDING_DIMENSIONS)
+    );
   }
 
   const apiKey = getApiKey();

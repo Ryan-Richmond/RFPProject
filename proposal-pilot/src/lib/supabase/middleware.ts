@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getSupabasePublishableKey, getSupabaseUrl } from "./env";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -7,14 +8,18 @@ export async function updateSession(request: NextRequest) {
   });
 
   // Dev bypass: skip auth when Supabase isn't configured yet
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!anonKey || anonKey === "your-anon-key-here") {
+  const publishableKey = getSupabasePublishableKey();
+  if (
+    !publishableKey ||
+    publishableKey === "your-supabase-publishable-key-here" ||
+    publishableKey === "your-anon-key-here"
+  ) {
     return supabaseResponse;
   }
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    anonKey,
+    getSupabaseUrl(),
+    publishableKey,
     {
       cookies: {
         getAll() {

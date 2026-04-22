@@ -1,5 +1,29 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Environment
+
+Create `.env.local` with:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key_here
+AI_MODE=mock
+PERPLEXITY_API_KEY=your_perplexity_api_key_here
+```
+
+The same variables are required in Vercel Project Settings for Production, Preview, and Development.
+Use `AI_MODE=mock` for no-cost demos and `AI_MODE=live` when you are ready to call Perplexity.
+
+## Supabase
+
+Apply the migrations in `supabase/migrations` to initialize the database schema, pgvector search, agent operation logs, opportunity discovery tables, proposal revision history, and the private `documents` Storage bucket used by uploads.
+
+## Mock Testing
+
+When `AI_MODE=mock`, ProposalPilot never calls Perplexity. It returns deterministic fixture analysis, drafting, compliance, discovery, scoring, Sonar research, and embeddings. Use the Workspace page's **Load Demo** button to seed a demo capability statement, mock RFP, requirements, compliance matrix, first draft, and activity logs.
+
+Sample files are available in `mock-data/` if you prefer to test the upload flow manually.
+
 ## Getting Started
 
 First, run the development server:

@@ -1,0 +1,24 @@
+Mock RFP: Cybersecurity Modernization Support Services
+Solicitation Number: W91QF6-26-R-0007
+Agency: U.S. Army Training and Doctrine Command
+Due Date: 2026-06-15 17:00:00Z
+Set-Aside: Small Business
+NAICS: 541512, 541519
+
+Section C - Performance Work Statement
+The contractor shall provide secure cloud modernization support for mission training applications. Work includes application discovery, migration planning, landing-zone validation, integration, continuous monitoring, vulnerability remediation, dashboard modernization, and sustainment support.
+
+The contractor shall maintain FedRAMP-aligned controls, provide monthly vulnerability metrics, document risk acceptance recommendations, and coordinate remediation activities with Government stakeholders.
+
+Section L - Instructions
+The offeror shall submit a technical volume, management volume, past performance volume, and price volume. The technical volume shall not exceed 50 pages and shall use 11-point font with one-inch margins. The offeror shall identify any assumptions, risks, and dependencies.
+
+The management volume shall include staffing structure, named roles, escalation procedures, governance cadence, sprint ceremonies, quality controls, and risk management approach.
+
+The past performance volume shall provide three relevant references from the last five years, including contract number, customer, period of performance, value, relevance, and point of contact.
+
+Section M - Evaluation Criteria
+Factor 1: Technical Approach, 40 percent. The Government will evaluate feasibility, security maturity, technical soundness, and alignment to mission needs.
+Factor 2: Management Approach, 25 percent. The Government will evaluate staffing, governance, risk control, schedule credibility, and quality management.
+Factor 3: Past Performance, 25 percent. The Government will evaluate recency, relevance, and quality.
+Factor 4: Price, 10 percent. The Government will evaluate reasonableness and completeness.

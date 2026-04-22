@@ -21,6 +21,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -31,14 +32,39 @@ export default function SignupPage() {
     setError(null);
 
     const supabase = createClient();
+    const normalizedInviteCode = inviteCode.trim().toUpperCase();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (normalizedInviteCode) {
+      const { data: inviteValidation, error: inviteValidationError } =
+        await supabase.rpc("validate_workspace_invite", {
+          invite_code: normalizedInviteCode,
+          invite_email: normalizedEmail,
+        });
+
+      const inviteStatus = Array.isArray(inviteValidation)
+        ? inviteValidation[0]
+        : inviteValidation;
+
+      if (inviteValidationError || !inviteStatus?.is_valid) {
+        setError(
+          inviteStatus?.reason ||
+            inviteValidationError?.message ||
+            "Invite code is invalid or expired."
+        );
+        setLoading(false);
+        return;
+      }
+    }
 
     // 1. Create the user
     const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
       options: {
         data: {
           workspace_name: workspaceName,
+          invite_code: normalizedInviteCode || undefined,
         },
       },
     });
@@ -55,16 +81,32 @@ export default function SignupPage() {
       return;
     }
 
-    // 2. Create the workspace (done via DB trigger or API route in production)
-    // For now, we'll create it directly
-    const { error: wsError } = await supabase.from("workspaces").insert({
-      name: workspaceName,
-      owner_id: authData.user.id,
-    });
+    if (normalizedInviteCode) {
+      const { error: inviteError } = await supabase.rpc("redeem_workspace_invite", {
+        invite_code: normalizedInviteCode,
+      });
 
-    if (wsError) {
-      console.error("Workspace creation error:", wsError);
-      // User is created but workspace failed — they can create it later
+      if (inviteError) {
+        setError(inviteError.message);
+        setLoading(false);
+        return;
+      }
+    } else {
+      // 2. Create the workspace for the first user.
+      const { error: wsError } = await supabase.from("workspaces").insert({
+        name: workspaceName,
+        owner_id: authData.user.id,
+      });
+
+      if (wsError) {
+        console.error("Workspace creation error:", wsError);
+        // User is created but workspace failed — they can create it later
+      } else {
+        await supabase
+          .from("workspace_members")
+          .update({ member_email: normalizedEmail })
+          .eq("user_id", authData.user.id);
+      }
     }
 
     router.push("/workspace");
@@ -92,8 +134,22 @@ export default function SignupPage() {
               placeholder="Acme Federal Solutions"
               value={workspaceName}
               onChange={(e) => setWorkspaceName(e.target.value)}
-              required
+              required={!inviteCode.trim()}
+              disabled={Boolean(inviteCode.trim())}
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="invite-code">Invite Code</Label>
+            <Input
+              id="invite-code"
+              type="text"
+              placeholder="PP-1234ABCD"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+            />
+            <p className="text-xs text-muted-foreground">
+              Use this only if a teammate invited you to an existing workspace.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
