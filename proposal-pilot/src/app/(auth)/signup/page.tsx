@@ -33,10 +33,33 @@ export default function SignupPage() {
 
     const supabase = createClient();
     const normalizedInviteCode = inviteCode.trim().toUpperCase();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (normalizedInviteCode) {
+      const { data: inviteValidation, error: inviteValidationError } =
+        await supabase.rpc("validate_workspace_invite", {
+          invite_code: normalizedInviteCode,
+          invite_email: normalizedEmail,
+        });
+
+      const inviteStatus = Array.isArray(inviteValidation)
+        ? inviteValidation[0]
+        : inviteValidation;
+
+      if (inviteValidationError || !inviteStatus?.is_valid) {
+        setError(
+          inviteStatus?.reason ||
+            inviteValidationError?.message ||
+            "Invite code is invalid or expired."
+        );
+        setLoading(false);
+        return;
+      }
+    }
 
     // 1. Create the user
     const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
+      email: normalizedEmail,
       password,
       options: {
         data: {
@@ -59,13 +82,15 @@ export default function SignupPage() {
     }
 
     if (normalizedInviteCode) {
-      await supabase
-        .rpc("redeem_workspace_invite", { invite_code: normalizedInviteCode })
-        .then(({ error: inviteError }) => {
-          if (inviteError) {
-            console.warn("Invite redemption will complete after confirmation:", inviteError);
-          }
-        });
+      const { error: inviteError } = await supabase.rpc("redeem_workspace_invite", {
+        invite_code: normalizedInviteCode,
+      });
+
+      if (inviteError) {
+        setError(inviteError.message);
+        setLoading(false);
+        return;
+      }
     } else {
       // 2. Create the workspace for the first user.
       const { error: wsError } = await supabase.from("workspaces").insert({
@@ -79,7 +104,7 @@ export default function SignupPage() {
       } else {
         await supabase
           .from("workspace_members")
-          .update({ member_email: email.trim().toLowerCase() })
+          .update({ member_email: normalizedEmail })
           .eq("user_id", authData.user.id);
       }
     }
