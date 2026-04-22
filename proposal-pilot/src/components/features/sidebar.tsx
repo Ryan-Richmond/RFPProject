@@ -14,6 +14,7 @@ import {
   Target,
   Building2,
   Cpu,
+  Users,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -62,6 +63,11 @@ const navItems = [
     label: "Profile",
     href: "/profile",
     icon: Building2,
+  },
+  {
+    label: "Team",
+    href: "/team",
+    icon: Users,
   },
   {
     label: "Computer Ops",

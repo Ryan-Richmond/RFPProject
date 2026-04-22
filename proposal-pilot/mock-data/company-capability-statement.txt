@@ -1,0 +1,20 @@
+ProposalPilot Demo Capability Statement
+
+Northstar Digital Services is a small federal technology integrator specializing in secure cloud modernization, DevSecOps enablement, and mission application sustainment. The company supports NAICS 541512 and 541519 work for defense and civilian customers.
+
+Corporate Overview
+Northstar delivers modernization programs through integrated product teams that combine cloud architects, cybersecurity engineers, delivery leads, business analysts, and quality specialists. The team uses sprint planning, control gates, and executive dashboards to keep delivery measurable and transparent.
+
+Technical Approach
+Northstar migrates legacy applications using discovery, dependency mapping, landing-zone validation, automated testing, and phased cutover. Security controls are built into the backlog, including vulnerability remediation, least-privilege access, audit logging, secure configuration baselines, and continuous monitoring.
+
+Management Approach
+Each engagement uses a named program manager, technical lead, security lead, and customer success lead. Governance includes weekly sprint reviews, monthly risk reviews, an integrated master schedule, and an issue escalation path for scope, cost, staffing, and security decisions.
+
+Past Performance
+In 2025, Northstar supported a mock Army training systems modernization task order valued at $6.8M. The team migrated three applications to a secure cloud environment, reduced critical vulnerabilities by 41 percent, and delivered a portfolio dashboard used by program leadership.
+
+In 2024, Northstar supported a mock civilian data governance contract valued at $3.2M. The team built reusable data pipelines, improved reporting cycle time from ten days to two days, and documented controls for audit readiness.
+
+Certifications and Compliance
+Northstar maintains active SAM registration, small business status, ISO 9001-aligned quality procedures, and documented cybersecurity policies mapped to NIST 800-53 and FedRAMP moderate control families.
