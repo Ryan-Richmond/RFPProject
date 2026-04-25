@@ -106,6 +106,11 @@ export async function GET(
             incumbent_info: samScored.incumbent_info,
             competitive_landscape: samScored.competitive_landscape,
             citations: samScored.ai_citations,
+            bid_readiness_score: samScored.ai_bid_readiness_score,
+            delivery_complexity_score: samScored.ai_delivery_complexity_score,
+            confidence: samScored.ai_confidence,
+            estimated_contract_value_min: samScored.ai_estimated_contract_value_min,
+            estimated_contract_value_max: samScored.ai_estimated_contract_value_max,
           },
         ],
       });

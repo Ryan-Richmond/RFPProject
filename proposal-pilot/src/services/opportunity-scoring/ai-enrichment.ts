@@ -7,6 +7,54 @@ interface EnrichmentConfig {
   minDeterministicScore?: number;
 }
 
+function clampScore(value: number): number {
+  if (Number.isNaN(value)) return 0;
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function estimateProfileCompleteness(profile: {
+  business_description: string | null;
+  core_capabilities: string[] | null;
+  certifications: string[] | null;
+  naics_codes: string[] | null;
+}): number {
+  let total = 0;
+
+  if ((profile.business_description || "").trim().length > 40) total += 25;
+  if ((profile.core_capabilities || []).length >= 3) total += 25;
+  if ((profile.certifications || []).length > 0) total += 25;
+  if ((profile.naics_codes || []).length > 0) total += 25;
+
+  return total;
+}
+
+function estimateBidReadinessScore(
+  deadline: string | null,
+  profileCompleteness: number,
+  complexityScore: number
+): number {
+  if (!deadline) {
+    return clampScore(55 + profileCompleteness * 0.3 - complexityScore * 0.2);
+  }
+
+  const due = new Date(deadline);
+  if (Number.isNaN(due.getTime())) {
+    return clampScore(50 + profileCompleteness * 0.25 - complexityScore * 0.2);
+  }
+
+  const diffDays = Math.ceil((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  let timelineFactor = 0;
+
+  if (diffDays < 0) timelineFactor = -70;
+  else if (diffDays <= 3) timelineFactor = -45;
+  else if (diffDays <= 7) timelineFactor = -25;
+  else if (diffDays <= 14) timelineFactor = -10;
+  else if (diffDays <= 30) timelineFactor = 5;
+  else timelineFactor = 12;
+
+  return clampScore(58 + timelineFactor + profileCompleteness * 0.3 - complexityScore * 0.25);
+}
+
 function safeJsonParse(text: string): Record<string, unknown> {
   try {
     const cleaned = text.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
@@ -137,6 +185,7 @@ export async function enrichTopOpportunitiesWithAI(
     };
 
     try {
+      const profileCompleteness = estimateProfileCompleteness(profile);
       const requirementsResponse = await callAgentAPI(
         {
           input: `Extract the key bid requirements from this opportunity and evaluate capability fit.
@@ -164,8 +213,12 @@ Return strict JSON:
   "capabilityMatchScore": number,
   "sizeFitScore": number,
   "competitionLevelScore": number,
+  "bidReadinessScore": number,
+  "deliveryComplexityScore": number,
   "overallScore": number,
   "recommendation": "pursue|monitor|pass",
+  "estimatedContractValueMin": number | null,
+  "estimatedContractValueMax": number | null,
   "confidence": "high|medium|low",
   "rationale": string
 }`,
@@ -179,6 +232,20 @@ Return strict JSON:
       const requiredCapabilities = Array.isArray(parsed.requiredCapabilities)
         ? (parsed.requiredCapabilities as string[])
         : [];
+      const complexityScore = clampScore(Number(parsed.deliveryComplexityScore || 0));
+      const readinessHeuristic = estimateBidReadinessScore(
+        opportunity.response_deadline,
+        profileCompleteness,
+        complexityScore
+      );
+      const aiBidReadiness = clampScore(Number(parsed.bidReadinessScore || readinessHeuristic));
+      const bidReadinessScore = clampScore((aiBidReadiness + readinessHeuristic) / 2);
+      const riskFlag =
+        bidReadinessScore < 45
+          ? "High readiness risk"
+          : bidReadinessScore < 65
+            ? "Moderate readiness risk"
+            : "Low readiness risk";
 
       const evidenceMatches = rankEvidenceMatches(
         (evidenceChunks || []).map((chunk) => ({
@@ -215,6 +282,8 @@ Return strict JSON:
           ai_capability_match_score: Number(parsed.capabilityMatchScore || 0),
           ai_size_fit_score: Number(parsed.sizeFitScore || 0),
           ai_competition_level_score: Number(parsed.competitionLevelScore || 0),
+          ai_bid_readiness_score: bidReadinessScore,
+          ai_delivery_complexity_score: complexityScore,
           ai_overall_score: Number(parsed.overallScore || row.overall_score || 0),
           ai_recommendation:
             parsed.recommendation === "pursue" ||
@@ -222,7 +291,15 @@ Return strict JSON:
             parsed.recommendation === "pass"
               ? parsed.recommendation
               : row.recommendation,
-          ai_score_rationale: (parsed.rationale as string) || null,
+          ai_score_rationale: `${(parsed.rationale as string) || ""}${
+            parsed.rationale ? " " : ""
+          }[${riskFlag}]`,
+          ai_confidence:
+            parsed.confidence === "high" || parsed.confidence === "medium" || parsed.confidence === "low"
+              ? parsed.confidence
+              : "medium",
+          ai_estimated_contract_value_min: Number(parsed.estimatedContractValueMin || 0) || null,
+          ai_estimated_contract_value_max: Number(parsed.estimatedContractValueMax || 0) || null,
           ai_citations: requirementsResponse.citations,
           ai_scored_at: new Date().toISOString(),
         })
@@ -247,6 +324,7 @@ Return strict JSON:
       minScore,
       topK,
       failed,
+      enriched,
     },
   });
 
