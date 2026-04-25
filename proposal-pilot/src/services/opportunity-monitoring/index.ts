@@ -5,7 +5,8 @@ export type PipelineType =
   | "deterministic_scoring"
   | "freshness_check"
   | "distribution_snapshot"
-  | "quality_check";
+  | "quality_check"
+  | "ai_enrichment";
 
 export async function logPipelineRun(input: {
   workspaceId: string;
