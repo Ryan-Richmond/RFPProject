@@ -173,7 +173,8 @@ export async function enrichTopOpportunitiesWithAI(
   let failed = 0;
 
   for (const row of rows) {
-    const opportunity = row.sam_opportunities as {
+    const rawOpp = row.sam_opportunities;
+    const opportunity = (Array.isArray(rawOpp) ? rawOpp[0] : rawOpp) as {
       id: string;
       title: string;
       full_parent_path_name: string | null;
@@ -184,6 +185,8 @@ export async function enrichTopOpportunitiesWithAI(
       classification_code: string | null;
       raw_payload: Record<string, unknown>;
     };
+
+    if (!opportunity) continue;
 
     try {
       const profileCompleteness = estimateProfileCompleteness(profile);

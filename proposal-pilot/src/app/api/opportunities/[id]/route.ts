@@ -74,8 +74,11 @@ export async function GET(
 
     if (samError) throw samError;
 
-    if (samScored?.sam_opportunities) {
-      const opp = samScored.sam_opportunities;
+    const samOpp = Array.isArray(samScored?.sam_opportunities)
+      ? samScored.sam_opportunities[0]
+      : samScored?.sam_opportunities;
+    if (samOpp) {
+      const opp = samOpp;
       const [override, timeline] = await Promise.all([
         getRecommendationOverride(workspaceId, id),
         getOpportunityScoreTimeline(workspaceId, id, 10),
@@ -205,13 +208,16 @@ export async function POST(
       .eq("sam_opportunity_id", id)
       .maybeSingle();
 
-    if (samScored?.sam_opportunities) {
+    const samOppPost = Array.isArray(samScored?.sam_opportunities)
+      ? samScored.sam_opportunities[0]
+      : samScored?.sam_opportunities;
+    if (samOppPost) {
       opportunity = {
         workspace_id: workspaceId,
-        solicitation_number: samScored.sam_opportunities.solicitation_number,
-        title: samScored.sam_opportunities.title,
-        agency: samScored.sam_opportunities.full_parent_path_name || "Unknown Agency",
-        response_deadline: samScored.sam_opportunities.response_deadline,
+        solicitation_number: samOppPost.solicitation_number,
+        title: samOppPost.title,
+        agency: samOppPost.full_parent_path_name || "Unknown Agency",
+        response_deadline: samOppPost.response_deadline,
       };
     }
 
