@@ -7,6 +7,8 @@
 
 import { callAgentAPI, callAgentAPIWithSearch, searchSonar } from "@/lib/ai/perplexity";
 import { createClient } from "@/lib/supabase/server";
+import { logPipelineRun } from "@/services/opportunity-monitoring";
+import { scoreAllOpportunities } from "@/services/opportunity-scoring/deterministic";
 
 // ---- Types ----
 
@@ -55,22 +57,20 @@ export interface OpportunityScore {
   citations: string[];
 }
 
-type OpportunityUpsertPayload = {
-  workspace_id: string;
-  source: string;
+type SamOpportunityUpsertPayload = {
+  notice_id: string | null;
   solicitation_number: string | null;
   title: string;
-  agency: string;
+  full_parent_path_name: string;
   posted_date: string | null;
   response_deadline: string | null;
+  naics_code: string | null;
   naics_codes: string[];
-  set_aside_type: string | null;
-  estimated_value_min: number | null;
-  estimated_value_max: number | null;
-  contract_type: string | null;
-  description: string | null;
+  type_of_set_aside: string | null;
+  classification_code: string | null;
   source_url: string | null;
-  raw_data: Record<string, unknown>;
+  description_url: string | null;
+  raw_payload: Record<string, unknown>;
 };
 
 type OpportunitySaveResult = {
@@ -129,27 +129,30 @@ function normalizeAgency(value?: string | null): string {
   return value?.replace(/\s+/g, " ").trim() || "Unknown Agency";
 }
 
-function buildDiscoveryIdentity(payload: OpportunityUpsertPayload): string {
+function buildDiscoveryIdentity(payload: SamOpportunityUpsertPayload): string {
+  if (payload.notice_id) {
+    return `sam_gov:notice:${payload.notice_id}`;
+  }
+
   if (payload.solicitation_number) {
-    return `${payload.source}:solicitation:${payload.solicitation_number}`;
+    return `sam_gov:solicitation:${payload.solicitation_number}`;
   }
 
   if (payload.source_url) {
-    return `${payload.source}:url:${payload.source_url}`;
+    return `sam_gov:url:${payload.source_url}`;
   }
 
   return [
-    payload.source,
+    "sam_gov",
     "fallback",
     payload.title.toLowerCase(),
-    payload.agency.toLowerCase(),
+    payload.full_parent_path_name.toLowerCase(),
     payload.response_deadline || "",
   ].join(":");
 }
 
-async function findExistingOpportunityId(
-  workspaceId: string,
-  source: string,
+async function findExistingSamOpportunityId(
+  noticeId?: string | null,
   solicitationNumber?: string | null,
   sourceUrl?: string | null,
   fallback?: {
@@ -160,12 +163,23 @@ async function findExistingOpportunityId(
 ): Promise<string | null> {
   const supabase = await createClient();
 
+  if (noticeId) {
+    const { data } = await supabase
+      .from("sam_opportunities")
+      .select("id")
+      .eq("notice_id", noticeId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (data?.[0]?.id) {
+      return data[0].id;
+    }
+  }
+
   if (solicitationNumber) {
     const { data } = await supabase
-      .from("opportunities")
+      .from("sam_opportunities")
       .select("id")
-      .eq("workspace_id", workspaceId)
-      .eq("source", source)
       .eq("solicitation_number", solicitationNumber)
       .order("created_at", { ascending: true })
       .limit(1);
@@ -177,10 +191,8 @@ async function findExistingOpportunityId(
 
   if (sourceUrl) {
     const { data } = await supabase
-      .from("opportunities")
+      .from("sam_opportunities")
       .select("id")
-      .eq("workspace_id", workspaceId)
-      .eq("source", source)
       .eq("source_url", sourceUrl)
       .order("created_at", { ascending: true })
       .limit(1);
@@ -192,12 +204,10 @@ async function findExistingOpportunityId(
 
   if (fallback?.title && fallback.agency) {
     let query = supabase
-      .from("opportunities")
+      .from("sam_opportunities")
       .select("id")
-      .eq("workspace_id", workspaceId)
-      .eq("source", source)
       .eq("title", fallback.title)
-      .eq("agency", fallback.agency)
+      .eq("full_parent_path_name", fallback.agency)
       .order("created_at", { ascending: true })
       .limit(1);
 
@@ -216,51 +226,55 @@ async function findExistingOpportunityId(
 }
 
 async function saveDiscoveredOpportunity(
-  payload: OpportunityUpsertPayload
+  payload: SamOpportunityUpsertPayload
 ): Promise<OpportunitySaveResult> {
   const supabase = await createClient();
-  const normalizedPayload: OpportunityUpsertPayload = {
+  const normalizedPayload: SamOpportunityUpsertPayload = {
     ...payload,
+    notice_id: payload.notice_id?.trim() || null,
     solicitation_number: normalizeSolicitationNumber(payload.solicitation_number),
     source_url: normalizeSourceUrl(payload.source_url),
+    description_url: normalizeSourceUrl(payload.description_url),
     title: normalizeTitle(payload.title),
-    agency: normalizeAgency(payload.agency),
+    full_parent_path_name: normalizeAgency(payload.full_parent_path_name),
+    naics_code: payload.naics_code?.replace(/\D/g, "").slice(0, 6) || null,
+    naics_codes: (payload.naics_codes || [])
+      .map((code) => code.replace(/\D/g, "").slice(0, 6))
+      .filter(Boolean),
   };
 
-  const existingId = await findExistingOpportunityId(
-    normalizedPayload.workspace_id,
-    normalizedPayload.source,
+  const existingId = await findExistingSamOpportunityId(
+    normalizedPayload.notice_id,
     normalizedPayload.solicitation_number,
     normalizedPayload.source_url,
     {
       title: normalizedPayload.title,
-      agency: normalizedPayload.agency,
+      agency: normalizedPayload.full_parent_path_name,
       responseDeadline: normalizedPayload.response_deadline,
     }
   );
 
   const query = existingId
-    ? supabase.from("opportunities").update(normalizedPayload).eq("id", existingId)
-    : supabase.from("opportunities").insert(normalizedPayload);
+    ? supabase.from("sam_opportunities").update(normalizedPayload).eq("id", existingId)
+    : supabase.from("sam_opportunities").insert(normalizedPayload);
 
   const { data, error } = await query.select("id").single();
 
   if (error) {
-    const recoveredId = await findExistingOpportunityId(
-      normalizedPayload.workspace_id,
-      normalizedPayload.source,
+    const recoveredId = await findExistingSamOpportunityId(
+      normalizedPayload.notice_id,
       normalizedPayload.solicitation_number,
       normalizedPayload.source_url,
       {
         title: normalizedPayload.title,
-        agency: normalizedPayload.agency,
+        agency: normalizedPayload.full_parent_path_name,
         responseDeadline: normalizedPayload.response_deadline,
       }
     );
 
     if (recoveredId) {
       const { data: recovered } = await supabase
-        .from("opportunities")
+        .from("sam_opportunities")
         .update(normalizedPayload)
         .eq("id", recoveredId)
         .select("id")
@@ -286,6 +300,7 @@ async function saveDiscoveredOpportunity(
 export async function discoverOpportunities(
   workspaceId: string
 ): Promise<DiscoveryResult> {
+  const startedAt = Date.now();
   const supabase = await createClient();
 
   // Get client profile for search filters
@@ -331,18 +346,19 @@ export async function discoverOpportunities(
         input: `Search for active government RFP opportunities on SAM.gov. ${searchQuery}
 
 For each opportunity found, extract:
+- notice_id
 - solicitation_number
 - title
 - agency
 - posted_date (ISO format)
 - response_deadline (ISO format)
 - naics_codes (array)
+- naics_code
 - set_aside_type
-- estimated_value_min
-- estimated_value_max
-- contract_type (FFP, T&M, CPFF, IDIQ)
+- classification_code
 - description (brief)
 - source_url
+- description_url
 
 Return a JSON array of opportunities. Return at least 5-10 results if available.`,
         instructions:
@@ -385,27 +401,32 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
 
     // Normalize and collapse duplicates inside a single discovery response before writing.
     let skippedDuplicateCount = 0;
-    const dedupedOpportunities = new Map<string, OpportunityUpsertPayload>();
+    const dedupedOpportunities = new Map<string, SamOpportunityUpsertPayload>();
 
     for (const opp of rawOpportunities) {
-      const payload: OpportunityUpsertPayload = {
-        workspace_id: workspaceId,
-        source: "sam_gov",
+      const naicsCodes = Array.isArray(opp.naics_codes)
+        ? (opp.naics_codes as string[])
+        : [];
+      const primaryNaics =
+        ((opp.naics_code as string) || naicsCodes[0] || "").replace(/\D/g, "").slice(0, 6) ||
+        null;
+
+      const payload: SamOpportunityUpsertPayload = {
+        notice_id: ((opp.notice_id as string) || (opp.noticeId as string) || null),
         solicitation_number: normalizeSolicitationNumber(
           (opp.solicitation_number as string) || null
         ),
         title: normalizeTitle((opp.title as string) || null),
-        agency: normalizeAgency((opp.agency as string) || null),
+        full_parent_path_name: normalizeAgency((opp.agency as string) || null),
         posted_date: (opp.posted_date as string) || null,
         response_deadline: (opp.response_deadline as string) || null,
-        naics_codes: (opp.naics_codes as string[]) || [],
-        set_aside_type: (opp.set_aside_type as string) || null,
-        estimated_value_min: (opp.estimated_value_min as number) || null,
-        estimated_value_max: (opp.estimated_value_max as number) || null,
-        contract_type: (opp.contract_type as string) || null,
-        description: (opp.description as string) || null,
+        naics_code: primaryNaics,
+        naics_codes: naicsCodes,
+        type_of_set_aside: (opp.set_aside_type as string) || null,
+        classification_code: (opp.classification_code as string) || null,
         source_url: normalizeSourceUrl((opp.source_url as string) || null),
-        raw_data: opp,
+        description_url: normalizeSourceUrl((opp.description_url as string) || null),
+        raw_payload: opp,
       };
 
       const identity = buildDiscoveryIdentity(payload);
@@ -432,19 +453,16 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
       if (saveResult.id) {
         savedOpportunities.push({
           id: saveResult.id,
-          source: opp.source,
+          source: "sam_gov",
           solicitationNumber: opp.solicitation_number || undefined,
           title: opp.title,
-          agency: opp.agency,
+          agency: opp.full_parent_path_name,
           postedDate: opp.posted_date || undefined,
           responseDeadline: opp.response_deadline || undefined,
-          naicsCodes: opp.naics_codes,
-          setAsideType: opp.set_aside_type || undefined,
-          estimatedValueMin: opp.estimated_value_min || undefined,
-          estimatedValueMax: opp.estimated_value_max || undefined,
-          contractType: opp.contract_type || undefined,
-          description: opp.description || undefined,
-          sourceUrl: opp.source_url || undefined,
+          naicsCodes: opp.naics_codes || (opp.naics_code ? [opp.naics_code] : []),
+          setAsideType: opp.type_of_set_aside || undefined,
+          description: (opp.raw_payload.description as string) || undefined,
+          sourceUrl: opp.source_url || opp.description_url || undefined,
         });
       }
     }
@@ -461,6 +479,20 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
         completed_at: new Date().toISOString(),
       })
       .eq("id", runId);
+
+    await logPipelineRun({
+      workspaceId,
+      pipelineType: "discovery",
+      status: "completed",
+      durationMs: Date.now() - startedAt,
+      rowsRead: rawOpportunities.length,
+      rowsWritten: savedOpportunities.length,
+      metadata: {
+        opportunitiesCreated: createdCount,
+        opportunitiesRefreshed: refreshedCount,
+        opportunitiesSkipped: skippedCount,
+      },
+    });
 
     return {
       runId,
@@ -480,6 +512,14 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
         completed_at: new Date().toISOString(),
       })
       .eq("id", runId);
+
+    await logPipelineRun({
+      workspaceId,
+      pipelineType: "discovery",
+      status: "failed",
+      durationMs: Date.now() - startedAt,
+      errorMessage: error instanceof Error ? error.message : "Unknown discovery error",
+    });
 
     throw error;
   }
@@ -655,16 +695,9 @@ export async function runFullDiscoveryCycle(
   // Step 1: Discover
   const discovery = await discoverOpportunities(workspaceId);
 
-  // Step 2: Score all new opportunities
-  let scored = 0;
-  for (const opp of discovery.opportunities) {
-    try {
-      await scoreOpportunity(opp.id, workspaceId);
-      scored++;
-    } catch (error) {
-      console.error(`Failed to score opportunity ${opp.id}:`, error);
-    }
-  }
+  // Step 2: Run deterministic tier-1 scoring against centralized SAM opportunities.
+  const scoringSummary = await scoreAllOpportunities(workspaceId);
+  const scored = scoringSummary.scored;
 
   // Update run record with scoring count
   const supabase = await createClient();
