@@ -8,6 +8,7 @@
 import { callAgentAPI, callAgentAPIWithSearch, searchSonar } from "@/lib/ai/perplexity";
 import { createClient } from "@/lib/supabase/server";
 import { logPipelineRun } from "@/services/opportunity-monitoring";
+import { recordDeadLetter, withRetry } from "@/services/opportunity-monitoring/hardening";
 import { scoreAllOpportunities } from "@/services/opportunity-scoring/deterministic";
 
 // ---- Types ----
@@ -341,9 +342,11 @@ export async function discoverOpportunities(
       .filter(Boolean)
       .join(", ");
 
-    const samGovResults = await callAgentAPIWithSearch(
-      {
-        input: `Search for active government RFP opportunities on SAM.gov. ${searchQuery}
+    const samGovResults = await withRetry(
+      () =>
+        callAgentAPIWithSearch(
+          {
+            input: `Search for active government RFP opportunities on SAM.gov. ${searchQuery}
 
 For each opportunity found, extract:
 - notice_id
@@ -361,11 +364,13 @@ For each opportunity found, extract:
 - description_url
 
 Return a JSON array of opportunities. Return at least 5-10 results if available.`,
-        instructions:
-          "Search SAM.gov and related federal procurement sites. Return ONLY a valid JSON array.",
-        domainAllowlist: ["sam.gov", "usaspending.gov"],
-      },
-      { workspaceId, operationType: "discovery" }
+            instructions:
+              "Search SAM.gov and related federal procurement sites. Return ONLY a valid JSON array.",
+            domainAllowlist: ["sam.gov", "usaspending.gov"],
+          },
+          { workspaceId, operationType: "discovery" }
+        ),
+      { retries: 2, delayMs: 500 }
     );
 
     // Parse discovered opportunities
@@ -519,6 +524,17 @@ Return a JSON array of opportunities. Return at least 5-10 results if available.
       status: "failed",
       durationMs: Date.now() - startedAt,
       errorMessage: error instanceof Error ? error.message : "Unknown discovery error",
+    });
+    await recordDeadLetter({
+      workspaceId,
+      pipelineType: "discovery",
+      entityType: "sam_discovery_run",
+      entityId: runId || undefined,
+      errorMessage: error instanceof Error ? error.message : "Unknown discovery error",
+      payload: {
+        runId,
+      },
+      retryCount: 2,
     });
 
     throw error;

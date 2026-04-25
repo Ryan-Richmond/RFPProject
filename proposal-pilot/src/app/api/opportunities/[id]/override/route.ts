@@ -4,6 +4,7 @@ import {
   applyRecommendationOverride,
   clearRecommendationOverride,
 } from "@/services/opportunity-scoring/explainability";
+import { recordOpportunityFeedback } from "@/services/opportunity-scoring/feedback";
 
 export async function POST(
   request: NextRequest,
@@ -39,6 +40,14 @@ export async function POST(
       reason,
       userId: user.id,
     });
+    await recordOpportunityFeedback({
+      workspaceId,
+      samOpportunityId: id,
+      eventType: "override_set",
+      priorRecommendation: recommendation,
+      reasonTag: reason,
+      actorUserId: user.id,
+    });
 
     return NextResponse.json({
       message: "Recommendation override saved",
@@ -70,6 +79,12 @@ export async function DELETE(
     }
 
     await clearRecommendationOverride(workspaceId, id);
+    await recordOpportunityFeedback({
+      workspaceId,
+      samOpportunityId: id,
+      eventType: "override_cleared",
+      actorUserId: user.id,
+    });
 
     return NextResponse.json({
       message: "Recommendation override cleared",

@@ -1,6 +1,7 @@
 import { callAgentAPI } from "@/lib/ai/perplexity";
 import { createClient } from "@/lib/supabase/server";
 import { logPipelineRun } from "@/services/opportunity-monitoring";
+import { recordDeadLetter, withRetry } from "@/services/opportunity-monitoring/hardening";
 
 interface EnrichmentConfig {
   topK?: number;
@@ -186,9 +187,11 @@ export async function enrichTopOpportunitiesWithAI(
 
     try {
       const profileCompleteness = estimateProfileCompleteness(profile);
-      const requirementsResponse = await callAgentAPI(
-        {
-          input: `Extract the key bid requirements from this opportunity and evaluate capability fit.
+      const requirementsResponse = await withRetry(
+        () =>
+          callAgentAPI(
+            {
+              input: `Extract the key bid requirements from this opportunity and evaluate capability fit.
 
 OPPORTUNITY
 - Title: ${opportunity.title}
@@ -222,10 +225,12 @@ Return strict JSON:
   "confidence": "high|medium|low",
   "rationale": string
 }`,
-          instructions: "Be concise and realistic. Output JSON only.",
-          model: "anthropic/claude-sonnet-4-6",
-        },
-        { workspaceId, operationType: "ai_enrichment" }
+              instructions: "Be concise and realistic. Output JSON only.",
+              model: "anthropic/claude-sonnet-4-6",
+            },
+            { workspaceId, operationType: "ai_enrichment" }
+          ),
+        { retries: 2, delayMs: 500 }
       );
 
       const parsed = safeJsonParse(requirementsResponse.outputText);
@@ -310,6 +315,18 @@ Return strict JSON:
     } catch (error) {
       failed += 1;
       console.error(`AI enrichment failed for opportunity ${opportunity.id}`, error);
+      await recordDeadLetter({
+        workspaceId,
+        pipelineType: "ai_enrichment",
+        entityType: "sam_opportunity",
+        entityId: opportunity.id,
+        errorMessage: error instanceof Error ? error.message : "Unknown enrichment error",
+        payload: {
+          title: opportunity.title,
+          overallScore: row.overall_score,
+        },
+        retryCount: 2,
+      });
     }
   }
 
