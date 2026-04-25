@@ -7,6 +7,7 @@ import {
   refreshWorkspaceSamQualityReport,
   refreshWorkspaceScoreDistributionSnapshot,
 } from "@/services/opportunity-monitoring";
+import { snapshotWorkspaceScoreHistory } from "@/services/opportunity-scoring/explainability";
 
 export async function POST() {
   const startedAt = Date.now();
@@ -58,6 +59,12 @@ export async function POST() {
         metadata: freshness,
       }),
     ]);
+
+    await snapshotWorkspaceScoreHistory(
+      workspaceId,
+      "deterministic",
+      "Deterministic scoring run completed"
+    );
 
     await logPipelineRun({
       workspaceId,

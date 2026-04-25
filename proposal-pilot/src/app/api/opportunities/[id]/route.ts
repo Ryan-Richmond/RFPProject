@@ -1,5 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  getOpportunityScoreTimeline,
+  getRecommendationOverride,
+  resolveRecommendationWithOverride,
+} from "@/services/opportunity-scoring/explainability";
+
+async function getWorkspaceIdForUser() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { supabase, user: null, workspaceId: null };
+  }
+
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", user.id)
+    .limit(1)
+    .single();
+
+  return {
+    supabase,
+    user,
+    workspaceId: membership?.workspace_id || null,
+  };
+}
 
 async function getWorkspaceIdForUser() {
   const supabase = await createClient();
@@ -71,6 +100,14 @@ export async function GET(
 
     if (samScored?.sam_opportunities) {
       const opp = samScored.sam_opportunities;
+      const [override, timeline] = await Promise.all([
+        getRecommendationOverride(workspaceId, id),
+        getOpportunityScoreTimeline(workspaceId, id, 10),
+      ]);
+      const effectiveRecommendation = resolveRecommendationWithOverride(
+        samScored.recommendation,
+        override
+      );
       return NextResponse.json({
         id: opp.id,
         title: opp.title,
@@ -100,7 +137,11 @@ export async function GET(
             set_aside_eligibility_score: samScored.set_aside_eligibility_score,
             competition_level_score: samScored.ai_competition_level_score || 0,
             timeline_fit_score: samScored.timeline_viability_score,
-            recommendation: samScored.recommendation,
+            recommendation: effectiveRecommendation,
+            base_recommendation: samScored.recommendation,
+            override_recommendation: override?.override_recommendation || null,
+            override_reason: override?.override_reason || null,
+            override_updated_at: override?.updated_at || null,
             score_rationale: samScored.ai_score_rationale || samScored.disqualification_reason,
             agency_intel: samScored.agency_intel,
             incumbent_info: samScored.incumbent_info,
@@ -111,6 +152,7 @@ export async function GET(
             confidence: samScored.ai_confidence,
             estimated_contract_value_min: samScored.ai_estimated_contract_value_min,
             estimated_contract_value_max: samScored.ai_estimated_contract_value_max,
+            score_timeline: timeline,
           },
         ],
       });

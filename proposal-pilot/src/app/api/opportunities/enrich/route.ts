@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getWorkspaceContext } from "@/lib/workspace";
 import { enrichTopOpportunitiesWithAI } from "@/services/opportunity-scoring/ai-enrichment";
+import { snapshotWorkspaceScoreHistory } from "@/services/opportunity-scoring/explainability";
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,6 +24,12 @@ export async function POST(request: NextRequest) {
       topK,
       minDeterministicScore,
     });
+
+    await snapshotWorkspaceScoreHistory(
+      workspaceId,
+      "ai_enrichment",
+      "AI enrichment run completed"
+    );
 
     return NextResponse.json({
       message: "AI enrichment complete",

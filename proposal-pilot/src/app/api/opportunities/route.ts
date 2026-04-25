@@ -52,8 +52,19 @@ export async function GET() {
     }
 
     if ((scoredSamOpps || []).length > 0) {
+      const { data: overrides } = await supabase
+        .from("sam_opportunity_recommendation_overrides")
+        .select("sam_opportunity_id,override_recommendation,override_reason,updated_at")
+        .eq("workspace_id", membership.workspace_id);
+
+      const overrideMap = new Map(
+        (overrides || []).map((override) => [override.sam_opportunity_id, override])
+      );
+
       const transformed = (scoredSamOpps || []).map((row) => {
         const opp = row.sam_opportunities;
+        const override = overrideMap.get(opp.id);
+        const recommendation = override?.override_recommendation || row.recommendation;
         return {
           id: opp.id,
           title: opp.title,
@@ -73,7 +84,11 @@ export async function GET() {
           opportunity_scores: [
             {
               overall_score: row.overall_score,
-              recommendation: row.recommendation,
+              recommendation,
+              base_recommendation: row.recommendation,
+              override_recommendation: override?.override_recommendation || null,
+              override_reason: override?.override_reason || null,
+              override_updated_at: override?.updated_at || null,
               score_rationale: row.ai_score_rationale || row.disqualification_reason,
             },
           ],
