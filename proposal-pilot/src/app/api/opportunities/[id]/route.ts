@@ -30,6 +30,30 @@ async function getWorkspaceIdForUser() {
   };
 }
 
+async function getWorkspaceIdForUser() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { supabase, user: null, workspaceId: null };
+  }
+
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", user.id)
+    .limit(1)
+    .single();
+
+  return {
+    supabase,
+    user,
+    workspaceId: membership?.workspace_id || null,
+  };
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
