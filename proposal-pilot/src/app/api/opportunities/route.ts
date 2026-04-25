@@ -12,7 +12,6 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get user's workspace
     const { data: membership } = await supabase
       .from("workspace_members")
       .select("workspace_id")
@@ -24,7 +23,82 @@ export async function GET() {
       return NextResponse.json({ error: "No workspace found" }, { status: 404 });
     }
 
-    // Fetch opportunities with scores, sorted by overall_score DESC
+    const { data: scoredSamOpps, error: scoredSamError } = await supabase
+      .from("sam_opportunity_scores")
+      .select(
+        `
+        *,
+        sam_opportunities!inner(
+          id,
+          title,
+          solicitation_number,
+          full_parent_path_name,
+          response_deadline,
+          type_of_set_aside,
+          naics_codes,
+          naics_code,
+          source_url,
+          description_url,
+          posted_date,
+          raw_payload
+        )
+      `
+      )
+      .eq("workspace_id", membership.workspace_id)
+      .order("overall_score", { ascending: false });
+
+    if (scoredSamError) {
+      throw scoredSamError;
+    }
+
+    if ((scoredSamOpps || []).length > 0) {
+      const { data: overrides } = await supabase
+        .from("sam_opportunity_recommendation_overrides")
+        .select("sam_opportunity_id,override_recommendation,override_reason,updated_at")
+        .eq("workspace_id", membership.workspace_id);
+
+      const overrideMap = new Map(
+        (overrides || []).map((override) => [override.sam_opportunity_id, override])
+      );
+
+      const transformed = (scoredSamOpps || []).map((row) => {
+        const opp = row.sam_opportunities;
+        const override = overrideMap.get(opp.id);
+        const recommendation = override?.override_recommendation || row.recommendation;
+        return {
+          id: opp.id,
+          title: opp.title,
+          agency: opp.full_parent_path_name || "Unknown Agency",
+          solicitation_number: opp.solicitation_number,
+          response_deadline: opp.response_deadline,
+          posted_date: opp.posted_date,
+          set_aside_type: opp.type_of_set_aside,
+          naics_codes:
+            Array.isArray(opp.naics_codes) && opp.naics_codes.length > 0
+              ? opp.naics_codes
+              : opp.naics_code
+                ? [opp.naics_code]
+                : [],
+          source_url: opp.source_url || opp.description_url,
+          status: row.is_disqualified ? "disqualified" : "active",
+          opportunity_scores: [
+            {
+              overall_score: row.overall_score,
+              recommendation,
+              base_recommendation: row.recommendation,
+              override_recommendation: override?.override_recommendation || null,
+              override_reason: override?.override_reason || null,
+              override_updated_at: override?.updated_at || null,
+              score_rationale: row.ai_score_rationale || row.disqualification_reason,
+            },
+          ],
+        };
+      });
+
+      return NextResponse.json(transformed);
+    }
+
+    // Fallback to legacy workspace-scoped opportunities until SAM scoring is populated.
     const { data: opportunities, error } = await supabase
       .from("opportunities")
       .select(
@@ -38,7 +112,6 @@ export async function GET() {
 
     if (error) throw error;
 
-    // Sort by score (opportunities with scores first, then by overall_score DESC)
     const sorted = (opportunities || []).sort((a, b) => {
       const scoreA = a.opportunity_scores?.[0]?.overall_score ?? -1;
       const scoreB = b.opportunity_scores?.[0]?.overall_score ?? -1;
