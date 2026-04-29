@@ -129,6 +129,54 @@ interface ProposalDetail {
   };
 }
 
+
+interface CompanyDocumentForReadiness {
+  id: string;
+  filename: string;
+  created_at: string;
+}
+
+const CRITICAL_DOCUMENT_KEYWORDS = [
+  "capability statement",
+  "past performance",
+  "resume",
+  "key personnel",
+  "quality",
+  "security",
+  "ssp",
+  "certification",
+  "naics",
+  "staffing",
+];
+
+async function getDraftReadinessWarning(): Promise<string | null> {
+  const response = await fetch("/api/documents?type=company");
+  if (!response.ok) {
+    return null;
+  }
+
+  const documents = (await response.json()) as CompanyDocumentForReadiness[];
+  if (documents.length === 0) {
+    return "No company documents are indexed yet. Draft quality may be low without evidence sources.";
+  }
+
+  const matchedKeywords = new Set<string>();
+  documents.forEach((document) => {
+    const filename = document.filename.toLowerCase();
+    CRITICAL_DOCUMENT_KEYWORDS.forEach((keyword) => {
+      if (filename.includes(keyword)) {
+        matchedKeywords.add(keyword);
+      }
+    });
+  });
+
+  const coverage = matchedKeywords.size / CRITICAL_DOCUMENT_KEYWORDS.length;
+  if (coverage < 0.5) {
+    return "Critical knowledge-base coverage appears low (<50%). Consider uploading capability statement, past performance, resumes, certifications, and security posture before drafting.";
+  }
+
+  return null;
+}
 function getConfidenceBadge(confidence?: ProposalSection["confidence"]) {
   if (!confidence) {
     return <Badge variant="secondary">Unknown</Badge>;
@@ -377,6 +425,16 @@ export default function ProposalDetailPage() {
 
   async function runDraft() {
     if (!proposal) return;
+
+    const warning = await getDraftReadinessWarning();
+    if (warning) {
+      const shouldContinue = window.confirm(`${warning}
+
+Generate draft anyway?`);
+      if (!shouldContinue) {
+        return;
+      }
+    }
 
     setGeneratingDraft(true);
     try {

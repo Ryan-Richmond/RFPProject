@@ -38,6 +38,59 @@ interface SearchResult {
   };
 }
 
+interface RecommendedDocument {
+  id: string;
+  label: string;
+  tier: "critical" | "recommended" | "differentiator";
+  keywords: string[];
+  freshnessMonths: number;
+  why: string;
+}
+
+const RECOMMENDED_DOCUMENTS: RecommendedDocument[] = [
+  { id: "capability_statement", label: "Capability Statement", tier: "critical", keywords: ["capability statement"], freshnessMonths: 6, why: "Core company positioning and differentiators." },
+  { id: "past_performance", label: "Past Performance Narratives", tier: "critical", keywords: ["past performance", "cpars", "references"], freshnessMonths: 12, why: "Provides credible evidence and outcomes for evaluators." },
+  { id: "corporate_experience", label: "Corporate Experience Writeups", tier: "critical", keywords: ["corporate experience"], freshnessMonths: 12, why: "Demonstrates delivery depth across domains." },
+  { id: "key_personnel", label: "Key Personnel Resumes", tier: "critical", keywords: ["resume", "key personnel", "bio"], freshnessMonths: 6, why: "Supports staffing and qualifications sections." },
+  { id: "quality_management", label: "Quality Management Plan", tier: "critical", keywords: ["quality", "qms"], freshnessMonths: 12, why: "Improves management and risk confidence." },
+  { id: "cybersecurity", label: "Cybersecurity Posture", tier: "critical", keywords: ["cyber", "ssp", "security"], freshnessMonths: 12, why: "Required for many federal opportunities." },
+  { id: "certifications", label: "Certifications Evidence", tier: "critical", keywords: ["iso", "soc", "fedramp", "certification"], freshnessMonths: 12, why: "Backs mandatory qualification claims." },
+  { id: "naics_socioeconomic", label: "NAICS + Socioeconomic Status", tier: "critical", keywords: ["naics", "8(a)", "sdvosb", "wosb", "hubzone"], freshnessMonths: 12, why: "Supports set-aside and eligibility checks." },
+  { id: "contract_vehicle", label: "Contract Vehicle List", tier: "critical", keywords: ["gwac", "idiq", "bpa", "contract vehicle"], freshnessMonths: 12, why: "Establishes procurement pathway alignment." },
+  { id: "staffing_approach", label: "Staffing/Management Approach", tier: "critical", keywords: ["staffing", "management approach"], freshnessMonths: 12, why: "Speeds technical and management volume drafting." },
+  { id: "transition_plan", label: "Transition Plans", tier: "recommended", keywords: ["transition"], freshnessMonths: 24, why: "Improves operational credibility at award start." },
+  { id: "risk_playbook", label: "Risk Register + Mitigation", tier: "recommended", keywords: ["risk", "mitigation"], freshnessMonths: 12, why: "Strengthens risk and compliance responses." },
+  { id: "partner_capabilities", label: "Teaming Partner Summaries", tier: "recommended", keywords: ["teaming", "partner", "subcontractor"], freshnessMonths: 12, why: "Expands scope coverage for large bids." },
+  { id: "innovation_cases", label: "Innovation Case Studies", tier: "differentiator", keywords: ["innovation", "automation", "accelerator"], freshnessMonths: 24, why: "Creates differentiation beyond minimum compliance." },
+];
+
+function getDocumentReadiness(documents: KnowledgeBaseDocument[]) {
+  const now = Date.now();
+  const evaluated = RECOMMENDED_DOCUMENTS.map((item) => {
+    const matched = documents.find((doc) => {
+      const name = doc.filename.toLowerCase();
+      return item.keywords.some((keyword) => name.includes(keyword));
+    });
+
+    const freshnessMet = matched
+      ? now - new Date(matched.created_at).getTime() <= item.freshnessMonths * 30 * 24 * 60 * 60 * 1000
+      : false;
+
+    return {
+      ...item,
+      matched,
+      freshnessMet,
+    };
+  });
+
+  const coverageScore = Math.round((evaluated.filter((item) => item.matched).length / evaluated.length) * 100);
+  const freshnessScore = Math.round((evaluated.filter((item) => item.freshnessMet).length / evaluated.length) * 100);
+
+  const weightedScore = Math.round(coverageScore * 0.6 + freshnessScore * 0.4);
+
+  return { evaluated, coverageScore, freshnessScore, weightedScore };
+}
+
 function getStatusBadge(status: KnowledgeBaseDocument["processing_status"]) {
   switch (status) {
     case "complete":
@@ -139,6 +192,8 @@ export default function KnowledgeBasePage() {
     errors: documents.filter((doc) => doc.processing_status === "error").length,
   };
 
+  const readiness = getDocumentReadiness(documents);
+
   return (
     <div className="space-y-6">
       <div>
@@ -177,6 +232,49 @@ export default function KnowledgeBasePage() {
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Recommended Documents</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Readiness Score</p>
+              <p className="text-2xl font-bold">{readiness.weightedScore}%</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Coverage</p>
+              <p className="text-2xl font-bold">{readiness.coverageScore}%</p>
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Freshness</p>
+              <p className="text-2xl font-bold">{readiness.freshnessScore}%</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {readiness.evaluated.map((item) => (
+              <div key={item.id} className="rounded-lg border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium">{item.label}</p>
+                    <Badge variant={item.tier === "critical" ? "default" : "secondary"}>
+                      {item.tier}
+                    </Badge>
+                  </div>
+                  <Badge variant={item.matched && item.freshnessMet ? "default" : "outline"}>
+                    {item.matched ? (item.freshnessMet ? "Ready" : "Stale") : "Missing"}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{item.why}</p>
+                {item.matched ? (
+                  <p className="mt-1 text-xs text-muted-foreground">Matched: {item.matched.filename}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
