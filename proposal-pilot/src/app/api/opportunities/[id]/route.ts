@@ -1,34 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getWorkspaceContext } from "@/lib/workspace";
 import {
   getOpportunityScoreTimeline,
   getRecommendationOverride,
   resolveRecommendationWithOverride,
 } from "@/services/opportunity-scoring/explainability";
-
-async function getWorkspaceIdForUser() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { supabase, user: null, workspaceId: null };
-  }
-
-  const { data: membership } = await supabase
-    .from("workspace_members")
-    .select("workspace_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
-
-  return {
-    supabase,
-    user,
-    workspaceId: membership?.workspace_id || null,
-  };
-}
 
 export async function GET(
   _request: NextRequest,
@@ -36,7 +12,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const { supabase, user, workspaceId } = await getWorkspaceIdForUser();
+    const { supabase, user, workspaceId } = await getWorkspaceContext();
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -146,6 +122,7 @@ export async function GET(
       `
       )
       .eq("id", id)
+      .eq("workspace_id", workspaceId)
       .single();
 
     if (error || !opportunity) {
@@ -171,7 +148,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const { supabase, user, workspaceId } = await getWorkspaceIdForUser();
+    const { supabase, user, workspaceId } = await getWorkspaceContext();
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -226,6 +203,7 @@ export async function POST(
         .from("opportunities")
         .select("workspace_id, solicitation_number, title, agency, response_deadline")
         .eq("id", id)
+        .eq("workspace_id", workspaceId)
         .single();
 
       opportunity = legacyOpportunity;
