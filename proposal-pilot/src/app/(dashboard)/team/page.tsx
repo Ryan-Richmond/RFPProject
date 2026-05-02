@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,11 +51,14 @@ function getInviteStatus(invite: TeamInvite) {
 }
 
 export default function TeamPage() {
+  const router = useRouter();
   const [payload, setPayload] = useState<TeamPayload | null>(null);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"member" | "admin">("member");
+  const [joinCode, setJoinCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
@@ -121,6 +125,32 @@ export default function TeamPage() {
       return;
     }
     await fetchTeam();
+  }
+
+  async function redeemInvite() {
+    setJoining(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/workspaces/invites/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inviteCode: joinCode }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to join workspace");
+      }
+
+      setJoinCode("");
+      router.push("/workspace");
+      router.refresh();
+    } catch (redeemError) {
+      setError(redeemError instanceof Error ? redeemError.message : "Failed to join workspace");
+    } finally {
+      setJoining(false);
+    }
   }
 
   async function copyCode(code: string) {
@@ -197,6 +227,41 @@ export default function TeamPage() {
               Ask a workspace owner or admin to create invite codes.
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Shield className="h-4 w-4" />
+            Join Another Workspace
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-[1fr_auto]">
+          <div className="space-y-2">
+            <Label htmlFor="join-code">Invite Code</Label>
+            <Input
+              id="join-code"
+              type="text"
+              value={joinCode}
+              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
+              placeholder="PP-1234ABCD"
+            />
+          </div>
+          <div className="flex items-end">
+            <Button
+              onClick={redeemInvite}
+              disabled={joining || !joinCode.trim()}
+              className="gap-2"
+            >
+              {joining ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="h-4 w-4" />
+              )}
+              Join Workspace
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

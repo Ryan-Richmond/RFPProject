@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
@@ -15,12 +16,14 @@ import {
   Building2,
   Cpu,
   Users,
+  ChevronDown,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -76,9 +79,61 @@ const navItems = [
   },
 ];
 
+interface WorkspaceOption {
+  workspaceId: string;
+  workspaceName: string;
+  role: string;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+
+  const activeWorkspace = workspaces.find(
+    (workspace) => workspace.workspaceId === activeWorkspaceId
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadWorkspaces() {
+      try {
+        const response = await fetch("/api/workspaces");
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        if (!isMounted) return;
+
+        setWorkspaces(payload.workspaces || []);
+        setActiveWorkspaceId(payload.activeWorkspaceId || null);
+      } catch (error) {
+        console.error("Failed to load workspaces:", error);
+      }
+    }
+
+    loadWorkspaces();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  async function handleWorkspaceSwitch(workspaceId: string) {
+    if (workspaceId === activeWorkspaceId) return;
+
+    const response = await fetch("/api/workspaces", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId }),
+    });
+
+    if (!response.ok) return;
+
+    setActiveWorkspaceId(workspaceId);
+    router.refresh();
+  }
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -144,13 +199,41 @@ export function Sidebar() {
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 text-left">
-              <p className="text-xs font-medium text-sidebar-foreground">
-                My Workspace
+              <p className="line-clamp-1 text-xs font-medium text-sidebar-foreground">
+                {activeWorkspace?.workspaceName || "My Workspace"}
               </p>
+              {activeWorkspace?.role ? (
+                <p className="text-[11px] capitalize text-sidebar-foreground/50">
+                  {activeWorkspace.role}
+                </p>
+              ) : null}
             </div>
+            <ChevronDown className="h-3.5 w-3.5 text-sidebar-foreground/40" />
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-[200px]">
-            <DropdownMenuItem>
+            <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+            {workspaces.length ? (
+              workspaces.map((workspace) => (
+                <DropdownMenuItem
+                  key={workspace.workspaceId}
+                  onClick={() => handleWorkspaceSwitch(workspace.workspaceId)}
+                  className="flex-col items-start gap-0.5"
+                >
+                  <span className="line-clamp-1">
+                    {workspace.workspaceName}
+                  </span>
+                  <span className="text-[11px] capitalize text-muted-foreground">
+                    {workspace.workspaceId === activeWorkspaceId
+                      ? "Active"
+                      : workspace.role}
+                  </span>
+                </DropdownMenuItem>
+              ))
+            ) : (
+              <DropdownMenuItem disabled>No workspaces found</DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/profile")}>
               <Settings className="mr-2 h-4 w-4" />
               Settings
             </DropdownMenuItem>

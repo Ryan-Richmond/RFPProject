@@ -1,35 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { supabase, user, workspaceId } = await getWorkspaceContext();
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: membership } = await supabase
-      .from("workspace_members")
-      .select("workspace_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .single();
-
-    if (!membership) {
+    if (!workspaceId) {
       return NextResponse.json({ error: "No workspace found" }, { status: 404 });
     }
 
     const { data: profile } = await supabase
       .from("client_profiles")
       .select("*")
-      .eq("workspace_id", membership.workspace_id)
+      .eq("workspace_id", workspaceId)
       .single();
 
-    return NextResponse.json(profile || { workspace_id: membership.workspace_id });
+    return NextResponse.json(profile || { workspace_id: workspaceId });
   } catch (error) {
     console.error("Profile GET error:", error);
     return NextResponse.json(
@@ -41,30 +31,20 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { supabase, user, workspaceId } = await getWorkspaceContext();
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: membership } = await supabase
-      .from("workspace_members")
-      .select("workspace_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .single();
-
-    if (!membership) {
+    if (!workspaceId) {
       return NextResponse.json({ error: "No workspace found" }, { status: 404 });
     }
 
     const body = await request.json();
 
     const profileData = {
-      workspace_id: membership.workspace_id,
+      workspace_id: workspaceId,
       company_name: body.company_name || null,
       business_description: body.business_description || null,
       naics_codes: body.naics_codes || [],

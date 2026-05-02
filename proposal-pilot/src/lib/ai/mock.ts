@@ -1,4 +1,4 @@
-import type { AgentAPIOptions, AgentAPIResponse } from "./perplexity";
+import type { AgentAPIOptions, AgentAPIResponse } from "./gemini";
 
 const MOCK_CITATIONS = [
   "https://sam.gov/opp/mock-cyber-modernization",

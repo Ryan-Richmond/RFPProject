@@ -5,7 +5,7 @@
  * and company evidence. Uses Perplexity Agent API for all AI operations.
  */
 
-import { callAgentAPI } from "@/lib/ai/perplexity";
+import { callAgentAPI } from "@/lib/ai/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { searchEvidence } from "@/services/knowledge-base";
 

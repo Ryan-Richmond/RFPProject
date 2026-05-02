@@ -5,7 +5,7 @@
  * Uses Perplexity Agent API for tagging and Embeddings API for vectors.
  */
 
-import { callAgentAPI, generateEmbeddings, callAgentAPIWithSearch } from "@/lib/ai/perplexity";
+import { callAgentAPI, generateEmbeddings, callAgentAPIWithSearch } from "@/lib/ai/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { parseDocument } from "@/lib/documents/parser";
 
