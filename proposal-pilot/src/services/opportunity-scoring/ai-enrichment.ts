@@ -1,4 +1,4 @@
-import { callAgentAPI } from "@/lib/ai/perplexity";
+import { callAgentAPI } from "@/lib/ai/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { logPipelineRun } from "@/services/opportunity-monitoring";
 import { recordDeadLetter, withRetry } from "@/services/opportunity-monitoring/hardening";

@@ -24,6 +24,7 @@ import {
   Target,
   Upload,
 } from "lucide-react";
+import { OnboardingGuide } from "@/components/features/onboarding-guide";
 
 interface WorkspaceDocument {
   id: string;
@@ -114,30 +115,40 @@ export default function WorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [seedError, setSeedError] = useState<string | null>(null);
+  
+  const [hasProfile, setHasProfile] = useState(false);
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true); // default true to avoid flash
 
   const fetchWorkspaceData = useCallback(async () => {
     setLoading(true);
     try {
-      const [documentsResponse, proposalsResponse, operationsResponse] =
+      const [documentsResponse, proposalsResponse, operationsResponse, statusResponse] =
         await Promise.all([
           fetch("/api/documents?type=company"),
           fetch("/api/proposals"),
           fetch("/api/agent-operations"),
+          fetch("/api/workspace/status"),
         ]);
 
       if (!documentsResponse.ok || !proposalsResponse.ok || !operationsResponse.ok) {
         throw new Error("Failed to load workspace data");
       }
 
-      const [documentsData, proposalsData, operationsData] = await Promise.all([
+      const [documentsData, proposalsData, operationsData, statusData] = await Promise.all([
         documentsResponse.json(),
         proposalsResponse.json(),
         operationsResponse.json(),
+        statusResponse.ok ? statusResponse.json() : null,
       ]);
 
       setDocuments(documentsData as WorkspaceDocument[]);
       setProposals(proposalsData as ProposalWorkflow[]);
       setOperations(operationsData as AgentOperationsPayload);
+      
+      if (statusData) {
+        setHasProfile(statusData.hasProfile as boolean);
+        setHasCompletedOnboarding(statusData.hasCompletedOnboarding as boolean);
+      }
     } catch (error) {
       console.error("Failed to fetch workspace data:", error);
     } finally {
@@ -246,6 +257,16 @@ export default function WorkspacePage() {
           {seedError}
         </div>
       ) : null}
+
+      {!loading && !hasCompletedOnboarding && (
+        <OnboardingGuide
+          hasProfile={hasProfile}
+          hasDocuments={documents.length > 0}
+          hasOpportunities={proposals.length > 0 || (operations?.stats?.discoveryCount ?? 0) > 0}
+          hasAnalysis={proposals.some(p => p.requirements_count > 0)}
+          onDismiss={() => setHasCompletedOnboarding(true)}
+        />
+      )}
 
       <PipelineStepper stages={pipelineStages} />
 

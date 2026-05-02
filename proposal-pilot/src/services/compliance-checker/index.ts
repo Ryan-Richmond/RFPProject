@@ -5,7 +5,7 @@
  * Uses Perplexity Agent API for all AI operations.
  */
 
-import { callAgentAPI } from "@/lib/ai/perplexity";
+import { callAgentAPI } from "@/lib/ai/gemini";
 import { createClient } from "@/lib/supabase/server";
 
 // ---- Output Types ----

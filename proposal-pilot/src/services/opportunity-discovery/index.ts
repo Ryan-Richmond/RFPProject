@@ -5,7 +5,7 @@
  * that match a client's profile using Perplexity Agent API.
  */
 
-import { callAgentAPI, callAgentAPIWithSearch, searchSonar } from "@/lib/ai/perplexity";
+import { callAgentAPI, callAgentAPIWithSearch, searchSonar } from "@/lib/ai/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { logPipelineRun } from "@/services/opportunity-monitoring";
 import { recordDeadLetter, withRetry } from "@/services/opportunity-monitoring/hardening";

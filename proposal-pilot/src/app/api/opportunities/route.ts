@@ -1,25 +1,15 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getWorkspaceContext } from "@/lib/workspace";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { supabase, user, workspaceId } = await getWorkspaceContext();
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: membership } = await supabase
-      .from("workspace_members")
-      .select("workspace_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .single();
-
-    if (!membership) {
+    if (!workspaceId) {
       return NextResponse.json({ error: "No workspace found" }, { status: 404 });
     }
 
@@ -44,7 +34,7 @@ export async function GET() {
         )
       `
       )
-      .eq("workspace_id", membership.workspace_id)
+      .eq("workspace_id", workspaceId)
       .order("overall_score", { ascending: false });
 
     if (scoredSamError) {
@@ -55,7 +45,7 @@ export async function GET() {
       const { data: overrides } = await supabase
         .from("sam_opportunity_recommendation_overrides")
         .select("sam_opportunity_id,override_recommendation,override_reason,updated_at")
-        .eq("workspace_id", membership.workspace_id);
+        .eq("workspace_id", workspaceId);
 
       const overrideMap = new Map(
         (overrides || []).map((override) => [override.sam_opportunity_id, override])
@@ -107,7 +97,7 @@ export async function GET() {
         opportunity_scores(*)
       `
       )
-      .eq("workspace_id", membership.workspace_id)
+      .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
