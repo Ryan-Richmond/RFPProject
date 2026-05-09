@@ -10,25 +10,16 @@ import {
   PenTool,
   CheckCircle,
   LayoutDashboard,
-  Settings,
   LogOut,
   Target,
   Building2,
   Cpu,
   Users,
-  ChevronDown,
   ChevronRight,
+  Check,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -222,63 +213,62 @@ export function Sidebar() {
 
       <Separator />
 
-      {/* User Menu */}
-      <div className="px-3 py-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-sidebar-accent/50 cursor-pointer"
-          >
-            <Avatar className="h-7 w-7 shrink-0">
-              <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
-                {displayName ? getInitials(displayName) : "?"}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="line-clamp-1 text-xs font-medium text-sidebar-foreground">
-                {activeWorkspace?.workspaceName || "My Workspace"}
-              </p>
-              {activeWorkspace?.role ? (
-                <p className="text-[11px] capitalize text-sidebar-foreground/50">
-                  {activeWorkspace.role}
-                </p>
-              ) : null}
-            </div>
-            <ChevronDown className="h-3.5 w-3.5 text-sidebar-foreground/40 shrink-0" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="start" className="w-[200px]">
-            <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
-            {workspaces.length ? (
-              workspaces.map((workspace) => (
-                <DropdownMenuItem
-                  key={workspace.workspaceId}
-                  onClick={() => handleWorkspaceSwitch(workspace.workspaceId)}
-                  className="flex-col items-start gap-0.5"
-                >
-                  <span className="line-clamp-1">
-                    {workspace.workspaceName}
-                  </span>
-                  <span className="text-[11px] capitalize text-muted-foreground">
-                    {workspace.workspaceId === activeWorkspaceId
-                      ? "Active"
-                      : workspace.role}
-                  </span>
-                </DropdownMenuItem>
-              ))
-            ) : (
-              <DropdownMenuItem disabled>No workspaces found</DropdownMenuItem>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => router.push("/profile")}>
-              <Settings className="mr-2 h-4 w-4" />
-              Company Settings
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleSignOut}>
-              <LogOut className="mr-2 h-4 w-4" />
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      {/* Workspace Switcher */}
+      <div className="px-3 pt-3 pb-1">
+        <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-sidebar-foreground/40">
+          Workspaces
+        </p>
+        {workspaces.length > 0 ? (
+          workspaces.map((workspace) => {
+            const isActive = workspace.workspaceId === activeWorkspaceId;
+            return (
+              <button
+                key={workspace.workspaceId}
+                onClick={() => handleWorkspaceSwitch(workspace.workspaceId)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors",
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-primary"
+                    : "text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                )}
+              >
+                <Avatar className="h-6 w-6 shrink-0">
+                  <AvatarFallback
+                    className={cn(
+                      "text-[10px] font-semibold",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {getInitials(workspace.workspaceName)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="flex-1 min-w-0 truncate text-xs font-medium">
+                  {workspace.workspaceName}
+                </span>
+                {isActive && (
+                  <Check className="h-3.5 w-3.5 shrink-0 text-sidebar-primary" />
+                )}
+              </button>
+            );
+          })
+        ) : (
+          <p className="px-3 py-2 text-xs text-sidebar-foreground/40">
+            No workspaces found
+          </p>
+        )}
+      </div>
+
+      {/* Sign Out */}
+      <div className="px-3 pb-3">
+        <button
+          onClick={handleSignOut}
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs text-sidebar-foreground/50 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        >
+          <LogOut className="h-3.5 w-3.5 shrink-0" />
+          Sign out
+        </button>
       </div>
     </aside>
   );
