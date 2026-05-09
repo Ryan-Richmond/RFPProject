@@ -126,6 +126,7 @@ export default function WorkspacePage() {
 
   const [hasProfile, setHasProfile] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true); // default true to avoid flash
+  const [showPreviewGuide, setShowPreviewGuide] = useState(false);
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
 
@@ -173,6 +174,13 @@ export default function WorkspacePage() {
   useEffect(() => {
     fetchWorkspaceData();
   }, [fetchWorkspaceData]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("guide") === "open") {
+      setShowPreviewGuide(true);
+    }
+  }, []);
 
   async function handleSeedMockData() {
     setSeeding(true);
@@ -310,14 +318,21 @@ export default function WorkspacePage() {
         </div>
       ) : null}
 
-      {!loading && !hasCompletedOnboarding && (
+      {!loading && (!hasCompletedOnboarding || showPreviewGuide) && (
         <OnboardingGuide
           hasProfile={hasProfile}
           hasDocuments={documents.length > 0}
           hasOpportunities={proposals.length > 0 || (operations?.stats?.discoveryCount ?? 0) > 0}
           hasAnalysis={proposals.some(p => p.requirements_count > 0)}
           hasDraft={proposals.some(p => p.proposal_sections.length > 0)}
-          onDismiss={() => setHasCompletedOnboarding(true)}
+          preview={showPreviewGuide}
+          onDismiss={() => {
+            if (showPreviewGuide) {
+              setShowPreviewGuide(false);
+            } else {
+              setHasCompletedOnboarding(true);
+            }
+          }}
         />
       )}
 

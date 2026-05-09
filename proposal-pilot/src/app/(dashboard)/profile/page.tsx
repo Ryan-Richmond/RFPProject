@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,22 +9,6 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Save, Loader2, Plus, X, Info, CheckCircle2, BookOpen, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { OnboardingGuide } from "@/components/features/onboarding-guide";
-
-interface WorkspaceGuideStatus {
-  hasProfile: boolean;
-  hasDocuments: boolean;
-  hasOpportunities: boolean;
-  hasAnalysis: boolean;
-  hasDraft: boolean;
-}
 
 interface ClientProfile {
   company_name?: string;
@@ -153,6 +138,7 @@ function completionScore(profile: ClientProfile): number {
 }
 
 export default function ProfilePage() {
+  const router = useRouter();
   const [profile, setProfile] = useState<ClientProfile>({
     naics_codes: [],
     certifications: [],
@@ -164,9 +150,6 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [showGuide, setShowGuide] = useState(false);
-  const [guideStatus, setGuideStatus] = useState<WorkspaceGuideStatus | null>(null);
-  const [loadingGuide, setLoadingGuide] = useState(false);
 
   useEffect(() => {
     async function fetchProfile() {
@@ -219,33 +202,8 @@ export default function ProfilePage() {
     }
   }
 
-  async function handleLaunchGuide() {
-    setLoadingGuide(true);
-    try {
-      const [statusRes, docsRes, proposalsRes] = await Promise.all([
-        fetch("/api/workspace/status"),
-        fetch("/api/documents?type=company"),
-        fetch("/api/proposals"),
-      ]);
-
-      const status = statusRes.ok ? await statusRes.json() : {};
-      const docs = docsRes.ok ? await docsRes.json() : [];
-      const proposals = proposalsRes.ok ? await proposalsRes.json() : [];
-
-      setGuideStatus({
-        hasProfile: status.hasProfile ?? false,
-        hasDocuments: Array.isArray(docs) && docs.length > 0,
-        hasOpportunities: Array.isArray(proposals) && proposals.length > 0,
-        hasAnalysis: Array.isArray(proposals) && proposals.some((p: { requirements_count: number }) => p.requirements_count > 0),
-        hasDraft: Array.isArray(proposals) && proposals.some((p: { proposal_sections: unknown[] }) => p.proposal_sections.length > 0),
-      });
-      setShowGuide(true);
-    } catch (error) {
-      console.error("Failed to load guide status:", error);
-      toast.error("Failed to load guide. Please try again.");
-    } finally {
-      setLoadingGuide(false);
-    }
+  function handleLaunchGuide() {
+    router.push("/workspace?guide=open");
   }
 
   if (loading) {
@@ -261,29 +219,6 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      {/* Getting Started Guide dialog (preview mode — no data changes) */}
-      <Dialog open={showGuide} onOpenChange={(open) => { if (!open) setShowGuide(false); }}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader className="sr-only">
-            <DialogTitle>Getting Started Guide</DialogTitle>
-            <DialogDescription>
-              Step-by-step overview of how to use ProposalPilot from setup to export.
-            </DialogDescription>
-          </DialogHeader>
-          {guideStatus ? (
-            <OnboardingGuide
-              hasProfile={guideStatus.hasProfile}
-              hasDocuments={guideStatus.hasDocuments}
-              hasOpportunities={guideStatus.hasOpportunities}
-              hasAnalysis={guideStatus.hasAnalysis}
-              hasDraft={guideStatus.hasDraft}
-              preview
-              onDismiss={() => setShowGuide(false)}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -679,13 +614,8 @@ export default function ProfilePage() {
               variant="outline"
               className="gap-2 shrink-0"
               onClick={handleLaunchGuide}
-              disabled={loadingGuide}
             >
-              {loadingGuide ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <BookOpen className="h-4 w-4" />
-              )}
+              <BookOpen className="h-4 w-4" />
               Launch Guide
             </Button>
           </div>
