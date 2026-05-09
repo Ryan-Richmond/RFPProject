@@ -262,40 +262,40 @@ export default function KnowledgeBasePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className=”text-base”>Recommended Documents</CardTitle>
+          <CardTitle className="text-base">Recommended Documents</CardTitle>
         </CardHeader>
-        <CardContent className=”space-y-4”>
-          <div className=”grid gap-3 sm:grid-cols-3”>
-            <div className=”rounded-lg border p-3”>
-              <p className=”text-xs text-muted-foreground”>Readiness Score</p>
-              <p className=”text-2xl font-bold”>{readiness.weightedScore}%</p>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Readiness Score</p>
+              <p className="text-2xl font-bold">{readiness.weightedScore}%</p>
             </div>
-            <div className=”rounded-lg border p-3”>
-              <p className=”text-xs text-muted-foreground”>Coverage</p>
-              <p className=”text-2xl font-bold”>{readiness.coverageScore}%</p>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Coverage</p>
+              <p className="text-2xl font-bold">{readiness.coverageScore}%</p>
             </div>
-            <div className=”rounded-lg border p-3”>
-              <p className=”text-xs text-muted-foreground”>Freshness</p>
-              <p className=”text-2xl font-bold”>{readiness.freshnessScore}%</p>
+            <div className="rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Freshness</p>
+              <p className="text-2xl font-bold">{readiness.freshnessScore}%</p>
             </div>
           </div>
-          <div className=”space-y-2”>
+          <div className="space-y-2">
             {readiness.evaluated.map((item) => (
-              <div key={item.id} className=”rounded-lg border p-3”>
-                <div className=”flex flex-wrap items-center justify-between gap-2”>
-                  <div className=”flex flex-wrap items-center gap-2”>
-                    <p className=”text-sm font-medium”>{item.label}</p>
-                    <Badge variant={item.tier === “critical” ? “default” : “secondary”}>
+              <div key={item.id} className="rounded-lg border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium">{item.label}</p>
+                    <Badge variant={item.tier === "critical" ? "default" : "secondary"}>
                       {item.tier}
                     </Badge>
                   </div>
-                  <Badge variant={item.matched && item.freshnessMet ? “default” : “outline”}>
-                    {item.matched ? (item.freshnessMet ? “Ready” : “Stale”) : “Missing”}
+                  <Badge variant={item.matched && item.freshnessMet ? "default" : "outline"}>
+                    {item.matched ? (item.freshnessMet ? "Ready" : "Stale") : "Missing"}
                   </Badge>
                 </div>
-                <p className=”mt-1 text-xs text-muted-foreground”>{item.why}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{item.why}</p>
                 {item.matched ? (
-                  <p className=”mt-1 text-xs text-muted-foreground”>Matched: {item.matched.filename}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Matched: {item.matched.filename}</p>
                 ) : null}
               </div>
             ))}
@@ -304,11 +304,11 @@ export default function KnowledgeBasePage() {
       </Card>
 
       <Card>
-        <CardContent className=”pt-6”>
-          <div className=”flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between”>
+        <CardContent className="pt-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className=”text-sm font-medium”>Updating Company Files</p>
-              <p className=”mt-1 max-w-3xl text-sm leading-6 text-muted-foreground”>
+              <p className="text-sm font-medium">Updating Company Files</p>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
                 Upload the newer file, verify that it indexes correctly, then remove
                 the older version so stale evidence is not retrieved during drafting.
                 Use filenames with dates or versions, such as &quot;Past Performance
