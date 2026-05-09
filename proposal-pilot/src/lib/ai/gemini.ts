@@ -137,7 +137,7 @@ export async function callAgentAPI(
 
   try {
     const ai = getGeminiClient();
-    let systemInstruction = options.instructions;
+    const systemInstruction = options.instructions;
     
     // Convert structured output request to Gemini format
     let responseSchema;
@@ -198,7 +198,12 @@ export async function callAgentAPIWithSearch(
   });
 
   if (isAIMockMode()) {
-    const mockOpt = { ...options, tools: [{ type: "web_search" }] } as any;
+    const mockOpt: AgentAPIOptions = {
+      input: options.input,
+      instructions: options.instructions,
+      model: options.model,
+      tools: [{ type: "web_search" }],
+    };
     const result = getMockAgentResponse(mockOpt, operationContext);
     await completeAgentOperation(opId, {
       outputSummary: `[MOCK] ${result.outputText}`,

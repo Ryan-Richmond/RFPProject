@@ -14,6 +14,8 @@ import {
   Search,
   AlertCircle,
   CheckCircle2,
+  ExternalLink,
+  Trash2,
 } from "lucide-react";
 
 interface KnowledgeBaseDocument {
@@ -184,6 +186,31 @@ export default function KnowledgeBasePage() {
     }
   }, [searchQuery]);
 
+  const deleteDocument = useCallback(
+    async (document: KnowledgeBaseDocument) => {
+      const confirmed = window.confirm(
+        `Remove "${document.filename}" and its indexed evidence from this workspace?`
+      );
+      if (!confirmed) return;
+
+      try {
+        const response = await fetch(`/api/documents/${document.id}`, {
+          method: "DELETE",
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || "Failed to remove document");
+        }
+
+        await fetchDocuments();
+      } catch (error) {
+        console.error("Failed to remove document:", error);
+      }
+    },
+    [fetchDocuments]
+  );
+
   const stats = {
     documents: documents.length,
     indexedChunks: documents.reduce((sum, doc) => sum + doc.chunk_count, 0),
@@ -272,6 +299,22 @@ export default function KnowledgeBasePage() {
                 ) : null}
               </div>
             ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-medium">Updating Company Files</p>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                Upload the newer file, verify that it indexes correctly, then remove
+                the older version so stale evidence is not retrieved during drafting.
+                Use filenames with dates or versions, such as &quot;Past Performance
+                Narratives 2026 Q3,&quot; when content changes over time.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -398,7 +441,31 @@ export default function KnowledgeBasePage() {
                         </p>
                       ) : null}
                     </div>
-                    {getStatusBadge(document.processing_status)}
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        render={
+                          <a
+                            href={`/api/documents/${document.id}/download`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          />
+                        }
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Open
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => deleteDocument(document)}
+                        aria-label={`Remove ${document.filename}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                      {getStatusBadge(document.processing_status)}
+                    </div>
                   </div>
                 </div>
               ))}

@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   CircleDashed,
   Download,
+  ExternalLink,
   FileSearch,
   History,
   Loader2,
@@ -122,6 +123,7 @@ interface ProposalDetail {
     key_win_factors?: string[] | null;
     key_risk_factors?: string[] | null;
     source_documents?: {
+      id: string;
       filename: string;
       page_count?: number | null;
       created_at: string;
@@ -759,6 +761,21 @@ Generate draft anyway?`);
                           ).toLocaleDateString()}
                         </p>
                       </div>
+                      <Button
+                        className="mt-3 w-full"
+                        variant="outline"
+                        size="sm"
+                        render={
+                          <a
+                            href={`/api/documents/${proposal.solicitations.source_documents.id}/download`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          />
+                        }
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Open Source
+                      </Button>
                     </div>
                     <div className="rounded-lg border p-3">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">
