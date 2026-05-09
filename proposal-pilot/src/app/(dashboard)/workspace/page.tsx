@@ -126,6 +126,8 @@ export default function WorkspacePage() {
 
   const [hasProfile, setHasProfile] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true); // default true to avoid flash
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
 
   const hasDemoData = documents.some((doc) => DEMO_FILENAMES.has(doc.filename));
 
@@ -158,6 +160,8 @@ export default function WorkspacePage() {
       if (statusData) {
         setHasProfile(statusData.hasProfile as boolean);
         setHasCompletedOnboarding(statusData.hasCompletedOnboarding as boolean);
+        if (statusData.workspaceName) setWorkspaceName(statusData.workspaceName as string);
+        if (statusData.companyName) setCompanyName(statusData.companyName as string);
       }
     } catch (error) {
       console.error("Failed to fetch workspace data:", error);
@@ -250,7 +254,9 @@ export default function WorkspacePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Workspace</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {companyName || workspaceName || "Workspace"}
+          </h1>
           <p className="text-muted-foreground text-sm mt-1">
             Live proposal pipeline, AI activity, and workspace health
           </p>
@@ -310,6 +316,7 @@ export default function WorkspacePage() {
           hasDocuments={documents.length > 0}
           hasOpportunities={proposals.length > 0 || (operations?.stats?.discoveryCount ?? 0) > 0}
           hasAnalysis={proposals.some(p => p.requirements_count > 0)}
+          hasDraft={proposals.some(p => p.proposal_sections.length > 0)}
           onDismiss={() => setHasCompletedOnboarding(true)}
         />
       )}

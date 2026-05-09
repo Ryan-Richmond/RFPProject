@@ -12,6 +12,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PipelineStepper } from "@/components/features/pipeline-stepper";
 import {
@@ -273,6 +281,7 @@ export default function ProposalDetailPage() {
     null
   );
   const [savingOutcome, setSavingOutcome] = useState(false);
+  const [draftWarning, setDraftWarning] = useState<string | null>(null);
   const [outcomeForm, setOutcomeForm] = useState({
     outcome: "pending" as "won" | "lost" | "pending" | "no_bid",
     contractValue: "",
@@ -425,19 +434,22 @@ export default function ProposalDetailPage() {
     }
   }
 
-  async function runDraft() {
+  async function startDraftFlow() {
     if (!proposal) return;
 
     const warning = await getDraftReadinessWarning();
     if (warning) {
-      const shouldContinue = window.confirm(`${warning}
-
-Generate draft anyway?`);
-      if (!shouldContinue) {
-        return;
-      }
+      setDraftWarning(warning);
+      return;
     }
 
+    await executeDraft();
+  }
+
+  async function executeDraft() {
+    if (!proposal) return;
+
+    setDraftWarning(null);
     setGeneratingDraft(true);
     try {
       const response = await fetch(`/api/proposals/${proposal.id}/draft`, {
@@ -452,7 +464,7 @@ Generate draft anyway?`);
       }
 
       await fetchProposal();
-      toast.success("Draft generated.");
+      toast.success("Draft generated successfully.");
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Draft generation failed"
@@ -460,6 +472,10 @@ Generate draft anyway?`);
     } finally {
       setGeneratingDraft(false);
     }
+  }
+
+  async function runDraft() {
+    return startDraftFlow();
   }
 
   async function runComplianceCheck() {
@@ -637,6 +653,30 @@ Generate draft anyway?`);
 
   return (
     <div className="space-y-6">
+      {/* Draft readiness warning dialog */}
+      <Dialog open={Boolean(draftWarning)} onOpenChange={(open) => { if (!open) setDraftWarning(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Knowledge base coverage is low</DialogTitle>
+            <DialogDescription className="space-y-2">
+              <span className="block">{draftWarning}</span>
+              <span className="block text-xs">
+                You can still generate a draft, but sections may contain placeholder text where evidence could not be found. Consider uploading missing documents to the Knowledge Base first.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDraftWarning(null)}>
+              Upload Docs First
+            </Button>
+            <Button onClick={executeDraft} disabled={generatingDraft} className="gap-2">
+              {generatingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : <PenTool className="h-4 w-4" />}
+              Generate Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold tracking-tight">
@@ -678,8 +718,9 @@ Generate draft anyway?`);
           <Button
             variant="outline"
             className="gap-2"
-            onClick={runDraft}
+            onClick={startDraftFlow}
             disabled={generatingDraft || proposal.requirements.length === 0}
+            title={proposal.requirements.length === 0 ? "Run the analyzer first to extract requirements" : undefined}
           >
             {generatingDraft ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -890,8 +931,9 @@ Generate draft anyway?`);
                 </p>
                 <Button
                   className="mt-4 gap-2"
-                  onClick={runDraft}
+                  onClick={startDraftFlow}
                   disabled={generatingDraft || proposal.requirements.length === 0}
+                  title={proposal.requirements.length === 0 ? "Run the analyzer first to extract requirements" : undefined}
                 >
                   {generatingDraft ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -900,6 +942,11 @@ Generate draft anyway?`);
                   )}
                   Generate Draft
                 </Button>
+                {proposal.requirements.length === 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Run the analyzer first to extract RFP requirements.
+                  </p>
+                )}
               </CardContent>
             </Card>
           ) : (

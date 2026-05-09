@@ -15,18 +15,21 @@ export async function GET() {
 
     const { data: workspace } = await supabase
       .from("workspaces")
-      .select("has_completed_onboarding")
+      .select("has_completed_onboarding, name")
       .eq("id", workspaceId)
       .single();
 
-    const { count: profileCount } = await supabase
+    const { data: profile, count: profileCount } = await supabase
       .from("client_profiles")
-      .select("*", { count: "exact", head: true })
-      .eq("workspace_id", workspaceId);
+      .select("company_name", { count: "exact" })
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
 
     return NextResponse.json({
       hasCompletedOnboarding: workspace?.has_completed_onboarding ?? false,
       hasProfile: (profileCount ?? 0) > 0,
+      workspaceName: workspace?.name ?? null,
+      companyName: profile?.company_name ?? null,
     });
   } catch (error) {
     console.error("Failed to fetch workspace status:", error);

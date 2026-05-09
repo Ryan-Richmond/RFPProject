@@ -16,7 +16,17 @@ import {
   CheckCircle2,
   ExternalLink,
   Trash2,
+  Upload,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { toast } from "sonner";
 
 interface KnowledgeBaseDocument {
   id: string;
@@ -137,6 +147,8 @@ export default function KnowledgeBasePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<KnowledgeBaseDocument | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
@@ -186,30 +198,30 @@ export default function KnowledgeBasePage() {
     }
   }, [searchQuery]);
 
-  const deleteDocument = useCallback(
-    async (document: KnowledgeBaseDocument) => {
-      const confirmed = window.confirm(
-        `Remove "${document.filename}" and its indexed evidence from this workspace?`
-      );
-      if (!confirmed) return;
+  const confirmDeleteDocument = useCallback(async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/documents/${pendingDelete.id}`, {
+        method: "DELETE",
+      });
 
-      try {
-        const response = await fetch(`/api/documents/${document.id}`, {
-          method: "DELETE",
-        });
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          throw new Error(payload.error || "Failed to remove document");
-        }
-
-        await fetchDocuments();
-      } catch (error) {
-        console.error("Failed to remove document:", error);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "Failed to remove document");
       }
-    },
-    [fetchDocuments]
-  );
+
+      toast.success(`"${pendingDelete.filename}" removed from the knowledge base.`);
+      await fetchDocuments();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to remove document";
+      console.error("Failed to remove document:", error);
+      toast.error(message);
+    } finally {
+      setDeleting(false);
+      setPendingDelete(null);
+    }
+  }, [pendingDelete, fetchDocuments]);
 
   const stats = {
     documents: documents.length,
@@ -223,11 +235,34 @@ export default function KnowledgeBasePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Knowledge Base</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          Upload and index reusable company evidence for proposal drafting
-        </p>
+      {/* Delete confirmation dialog */}
+      <Dialog open={Boolean(pendingDelete)} onOpenChange={(open) => { if (!open && !deleting) setPendingDelete(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove document?</DialogTitle>
+            <DialogDescription>
+              <strong className="text-foreground">{pendingDelete?.filename}</strong> and all its indexed evidence chunks will be permanently removed from this workspace. Any proposal sections citing this document may have reduced quality.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteDocument} disabled={deleting} className="gap-2">
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Remove Document
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Knowledge Base</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Upload and index reusable company evidence for proposal drafting. The more complete your library, the higher quality your generated proposals.
+          </p>
+        </div>
       </div>
 
       <DocumentUploader
@@ -414,9 +449,15 @@ export default function KnowledgeBasePage() {
                 No documents indexed yet
               </p>
               <p className="text-xs text-muted-foreground/70 mt-1 max-w-xs">
-                Upload company documents to build the evidence library the drafter
-                can cite.
+                Upload your company documents above — capability statements, past performance narratives, resumes, and certifications — to build the evidence library your AI drafter cites.
               </p>
+              <button
+                className="mt-4 flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Upload your first document
+              </button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -459,7 +500,7 @@ export default function KnowledgeBasePage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        onClick={() => deleteDocument(document)}
+                        onClick={() => setPendingDelete(document)}
                         aria-label={`Remove ${document.filename}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
