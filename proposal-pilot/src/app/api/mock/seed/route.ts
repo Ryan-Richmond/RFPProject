@@ -9,8 +9,9 @@ import {
 } from "@/lib/mock/demo-data";
 import { getWorkspaceContext } from "@/lib/workspace";
 
-const DEMO_COMPANY_FILENAME = "Demo Capability Statement.txt";
-const DEMO_RFP_FILENAME = "Demo Cybersecurity Modernization RFP.txt";
+export const DEMO_COMPANY_FILENAME = "Demo Capability Statement.txt";
+export const DEMO_RFP_FILENAME = "Demo Cybersecurity Modernization RFP.txt";
+const DEMO_SOLICITATION_NUMBER = "W91QF6-26-R-0007";
 
 function splitDemoChunks(text: string) {
   return text
@@ -355,6 +356,122 @@ export async function POST() {
     console.error("Mock seed error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to seed mock data" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE() {
+  try {
+    const { supabase, user, workspaceId } = await getWorkspaceContext();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!workspaceId) {
+      return NextResponse.json({ error: "No workspace found" }, { status: 404 });
+    }
+
+    // Find demo source documents
+    const { data: demoDocs } = await supabase
+      .from("source_documents")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .in("filename", [DEMO_COMPANY_FILENAME, DEMO_RFP_FILENAME]);
+
+    const demoDocIds = (demoDocs || []).map((d) => d.id);
+
+    // Find demo solicitation
+    const { data: demoSolicitations } = await supabase
+      .from("solicitations")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("solicitation_number", DEMO_SOLICITATION_NUMBER);
+
+    const demoSolicitationIds = (demoSolicitations || []).map((s) => s.id);
+
+    if (demoSolicitationIds.length > 0) {
+      // Find proposal drafts for demo solicitations
+      const { data: demoProposals } = await supabase
+        .from("proposal_drafts")
+        .select("id")
+        .eq("workspace_id", workspaceId)
+        .in("solicitation_id", demoSolicitationIds);
+
+      const demoProposalIds = (demoProposals || []).map((p) => p.id);
+
+      if (demoProposalIds.length > 0) {
+        await supabase
+          .from("proposal_section_revisions")
+          .delete()
+          .eq("workspace_id", workspaceId)
+          .in("proposal_draft_id", demoProposalIds);
+
+        await supabase
+          .from("compliance_findings")
+          .delete()
+          .eq("workspace_id", workspaceId)
+          .in("proposal_draft_id", demoProposalIds);
+
+        await supabase
+          .from("proposal_sections")
+          .delete()
+          .eq("workspace_id", workspaceId)
+          .in("proposal_draft_id", demoProposalIds);
+
+        await supabase
+          .from("proposal_drafts")
+          .delete()
+          .eq("workspace_id", workspaceId)
+          .in("id", demoProposalIds);
+      }
+
+      await supabase
+        .from("extracted_requirements")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .in("solicitation_id", demoSolicitationIds);
+
+      await supabase
+        .from("compliance_matrix_entries")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .in("solicitation_id", demoSolicitationIds);
+
+      await supabase
+        .from("solicitations")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .in("id", demoSolicitationIds);
+    }
+
+    if (demoDocIds.length > 0) {
+      await supabase
+        .from("evidence_chunks")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .in("source_document_id", demoDocIds);
+
+      await supabase
+        .from("source_documents")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .in("id", demoDocIds);
+    }
+
+    // Delete agent operations flagged as mock
+    await supabase
+      .from("agent_operations")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .like("input_summary", "[MOCK]%");
+
+    return NextResponse.json({ status: "cleared" });
+  } catch (error) {
+    console.error("Mock clear error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to clear demo data" },
       { status: 500 }
     );
   }
