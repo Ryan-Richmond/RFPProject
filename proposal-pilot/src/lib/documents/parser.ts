@@ -5,7 +5,6 @@
  */
 
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
 
 export interface ParsedDocument {
   text: string;
@@ -45,6 +44,7 @@ function countWords(text: string): number {
 }
 
 async function parsePDF(buffer: Buffer): Promise<ParsedDocument> {
+  const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
   const [textResult, infoResult] = await Promise.all([
     parser.getText(),

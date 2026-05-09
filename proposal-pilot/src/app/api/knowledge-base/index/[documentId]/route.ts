@@ -37,6 +37,17 @@ export async function POST(
     }
 
     const result = await indexDocument(documentId, workspaceId);
+    if (result.status === "error") {
+      return NextResponse.json(
+        {
+          ...result,
+          error:
+            "Knowledge base indexing failed. Please remove the failed item and reupload the file.",
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json(result);
   } catch (error) {
     console.error("Knowledge base index error:", error);

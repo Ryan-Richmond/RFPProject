@@ -94,7 +94,7 @@ export function OnboardingGuide({
       <CardHeader className="pb-4">
         <CardTitle className="text-xl">Welcome to ProposalPilot</CardTitle>
         <CardDescription className="text-sm">
-          Let's get your workspace set up so you can start generating winning proposals.
+          Let&apos;s get your workspace set up so you can start generating winning proposals.
         </CardDescription>
         
         <div className="mt-4 flex items-center gap-3">
