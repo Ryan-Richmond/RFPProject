@@ -14,6 +14,8 @@ interface OnboardingGuideProps {
   hasAnalysis: boolean;
   hasDraft?: boolean;
   onDismiss: () => void;
+  /** Preview mode: dismiss closes without persisting to the database */
+  preview?: boolean;
 }
 
 export function OnboardingGuide({
@@ -23,6 +25,7 @@ export function OnboardingGuide({
   hasAnalysis,
   hasDraft = false,
   onDismiss,
+  preview = false,
 }: OnboardingGuideProps) {
   const [dismissing, setDismissing] = useState(false);
 
@@ -73,6 +76,11 @@ export function OnboardingGuide({
   const progressPercentage = Math.round((completedStepsCount / steps.length) * 100);
 
   async function handleDismiss() {
+    if (preview) {
+      onDismiss();
+      return;
+    }
+
     setDismissing(true);
     try {
       const response = await fetch("/api/workspace/onboarding", {
@@ -102,7 +110,7 @@ export function OnboardingGuide({
         className="absolute right-2 top-2 h-8 w-8 text-muted-foreground hover:bg-background/50 hover:text-foreground"
         onClick={handleDismiss}
         disabled={dismissing}
-        title="Dismiss this guide"
+        title={preview ? "Close guide" : "Dismiss this guide"}
       >
         <X className="h-4 w-4" />
         <span className="sr-only">Dismiss</span>

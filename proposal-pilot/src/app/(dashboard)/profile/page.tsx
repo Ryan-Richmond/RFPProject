@@ -6,8 +6,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Save, Loader2, Plus, X, Info, CheckCircle2 } from "lucide-react";
+import { Building2, Save, Loader2, Plus, X, Info, CheckCircle2, BookOpen, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { OnboardingGuide } from "@/components/features/onboarding-guide";
+
+interface WorkspaceGuideStatus {
+  hasProfile: boolean;
+  hasDocuments: boolean;
+  hasOpportunities: boolean;
+  hasAnalysis: boolean;
+  hasDraft: boolean;
+}
 
 interface ClientProfile {
   company_name?: string;
@@ -148,6 +164,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [guideStatus, setGuideStatus] = useState<WorkspaceGuideStatus | null>(null);
+  const [loadingGuide, setLoadingGuide] = useState(false);
 
   useEffect(() => {
     async function fetchProfile() {
@@ -200,6 +219,35 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleLaunchGuide() {
+    setLoadingGuide(true);
+    try {
+      const [statusRes, docsRes, proposalsRes] = await Promise.all([
+        fetch("/api/workspace/status"),
+        fetch("/api/documents?type=company"),
+        fetch("/api/proposals"),
+      ]);
+
+      const status = statusRes.ok ? await statusRes.json() : {};
+      const docs = docsRes.ok ? await docsRes.json() : [];
+      const proposals = proposalsRes.ok ? await proposalsRes.json() : [];
+
+      setGuideStatus({
+        hasProfile: status.hasProfile ?? false,
+        hasDocuments: Array.isArray(docs) && docs.length > 0,
+        hasOpportunities: Array.isArray(proposals) && proposals.length > 0,
+        hasAnalysis: Array.isArray(proposals) && proposals.some((p: { requirements_count: number }) => p.requirements_count > 0),
+        hasDraft: Array.isArray(proposals) && proposals.some((p: { proposal_sections: unknown[] }) => p.proposal_sections.length > 0),
+      });
+      setShowGuide(true);
+    } catch (error) {
+      console.error("Failed to load guide status:", error);
+      toast.error("Failed to load guide. Please try again.");
+    } finally {
+      setLoadingGuide(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
@@ -213,6 +261,29 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {/* Getting Started Guide dialog (preview mode — no data changes) */}
+      <Dialog open={showGuide} onOpenChange={(open) => { if (!open) setShowGuide(false); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Getting Started Guide</DialogTitle>
+            <DialogDescription>
+              Step-by-step overview of how to use ProposalPilot from setup to export.
+            </DialogDescription>
+          </DialogHeader>
+          {guideStatus ? (
+            <OnboardingGuide
+              hasProfile={guideStatus.hasProfile}
+              hasDocuments={guideStatus.hasDocuments}
+              hasOpportunities={guideStatus.hasOpportunities}
+              hasAnalysis={guideStatus.hasAnalysis}
+              hasDraft={guideStatus.hasDraft}
+              preview
+              onDismiss={() => setShowGuide(false)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -584,6 +655,42 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Help & Onboarding */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <HelpCircle className="h-4 w-4" />
+            Help &amp; Getting Started
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Not sure where to start or want a refresher on how the system works?
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Getting Started Guide</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Walks you through the full workflow — from uploading company docs to exporting your first proposal. Shows your actual current progress.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              className="gap-2 shrink-0"
+              onClick={handleLaunchGuide}
+              disabled={loadingGuide}
+            >
+              {loadingGuide ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <BookOpen className="h-4 w-4" />
+              )}
+              Launch Guide
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Save CTA */}
       <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-4 py-3">
