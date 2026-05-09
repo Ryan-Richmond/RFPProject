@@ -26,8 +26,15 @@ import {
 } from "lucide-react";
 import { OnboardingGuide } from "@/components/features/onboarding-guide";
 
+const IS_MOCK_MODE = process.env.NEXT_PUBLIC_AI_MODE === "mock";
+const DEMO_FILENAMES = new Set([
+  "Demo Capability Statement.txt",
+  "Demo Cybersecurity Modernization RFP.txt",
+]);
+
 interface WorkspaceDocument {
   id: string;
+  filename: string;
   chunk_count: number;
 }
 
@@ -115,9 +122,12 @@ export default function WorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [seedError, setSeedError] = useState<string | null>(null);
-  
+  const [clearingDemo, setClearingDemo] = useState(false);
+
   const [hasProfile, setHasProfile] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true); // default true to avoid flash
+
+  const hasDemoData = documents.some((doc) => DEMO_FILENAMES.has(doc.filename));
 
   const fetchWorkspaceData = useCallback(async () => {
     setLoading(true);
@@ -179,6 +189,25 @@ export default function WorkspacePage() {
     }
   }
 
+  async function handleClearDemoData() {
+    setClearingDemo(true);
+    setSeedError(null);
+    try {
+      const response = await fetch("/api/mock/seed", { method: "DELETE" });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to clear demo data");
+      }
+
+      await fetchWorkspaceData();
+    } catch (error) {
+      setSeedError(error instanceof Error ? error.message : "Failed to clear demo data");
+    } finally {
+      setClearingDemo(false);
+    }
+  }
+
   const stats = useMemo(() => {
     const indexedChunks = documents.reduce(
       (sum, document) => sum + document.chunk_count,
@@ -230,20 +259,37 @@ export default function WorkspacePage() {
           <Button variant="ghost" size="sm" onClick={fetchWorkspaceData}>
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSeedMockData}
-            disabled={seeding}
-            className="gap-2"
-          >
-            {seeding ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5" />
-            )}
-            Load Demo
-          </Button>
+          {IS_MOCK_MODE ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSeedMockData}
+              disabled={seeding}
+              className="gap-2"
+            >
+              {seeding ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              Load Demo
+            </Button>
+          ) : hasDemoData ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearDemoData}
+              disabled={clearingDemo}
+              className="gap-2 text-muted-foreground hover:text-destructive hover:border-destructive/40"
+            >
+              {clearingDemo ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              Clear Demo Data
+            </Button>
+          ) : null}
           <Link href="/proposals">
             <Button className="gap-2">
               <Upload className="h-4 w-4" /> New Proposal
