@@ -175,14 +175,31 @@ export default function OpportunitiesPage() {
         </Button>
       </div>
 
+      {/* Score Legend */}
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-4 py-2.5">
+        <span className="text-xs font-medium text-muted-foreground shrink-0">Score guide:</span>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-success" />
+          <span className="text-xs text-muted-foreground">75–100 · Pursue — strong match</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-warning" />
+          <span className="text-xs text-muted-foreground">50–74 · Monitor — partial fit</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-2 rounded-full bg-danger" />
+          <span className="text-xs text-muted-foreground">&lt;50 · Pass — low alignment</span>
+        </div>
+      </div>
+
       {/* Filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           variant={!filter.setAside ? "secondary" : "outline"}
           size="sm"
           onClick={() => setFilter((f) => ({ ...f, setAside: undefined }))}
         >
-          All
+          All Set-Asides
         </Button>
         {setAsideTypes.map((sa) => (
           <Button
@@ -214,7 +231,7 @@ export default function OpportunitiesPage() {
             </Button>
           ))}
         </div>
-        <Button variant="ghost" size="sm" onClick={fetchOpportunities}>
+        <Button variant="ghost" size="sm" onClick={fetchOpportunities} title="Refresh list">
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </div>
@@ -233,20 +250,24 @@ export default function OpportunitiesPage() {
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
               <Target className="h-5 w-5 text-muted-foreground" />
             </div>
-            <p className="text-sm font-medium text-muted-foreground">
-              No opportunities found
+            <p className="text-sm font-medium">No opportunities yet</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              Complete your company profile first, then click "Run Discovery" to
+              search SAM.gov for matching federal RFPs. Each result is scored
+              against your capabilities.
             </p>
-            <p className="text-xs text-muted-foreground/70 mt-1 max-w-sm">
-              Set up your client profile and run discovery to find matching
-              government RFP opportunities.
-            </p>
-            <div className="flex gap-3 mt-4">
+            <div className="flex flex-wrap justify-center gap-3 mt-5">
               <Link href="/profile">
                 <Button variant="outline" size="sm">
-                  Set Up Profile
+                  Complete Profile First
                 </Button>
               </Link>
-              <Button size="sm" onClick={handleDiscover} disabled={discovering}>
+              <Button size="sm" onClick={handleDiscover} disabled={discovering} className="gap-2">
+                {discovering ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Search className="h-3.5 w-3.5" />
+                )}
                 Run Discovery
               </Button>
             </div>

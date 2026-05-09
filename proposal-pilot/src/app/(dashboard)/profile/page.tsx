@@ -1,12 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Save, Loader2, Plus, X } from "lucide-react";
+import { Building2, Save, Loader2, Plus, X, Info, CheckCircle2, BookOpen, HelpCircle } from "lucide-react";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { OnboardingGuide } from "@/components/features/onboarding-guide";
+
+interface WorkspaceGuideStatus {
+  hasProfile: boolean;
+  hasDocuments: boolean;
+  hasOpportunities: boolean;
+  hasAnalysis: boolean;
+  hasDraft: boolean;
+}
 
 interface ClientProfile {
   company_name?: string;
@@ -80,6 +97,7 @@ function TagInput({
             <button
               onClick={() => onRemove(tag)}
               className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+              aria-label={`Remove ${tag}`}
             >
               <X className="h-3 w-3" />
             </button>
@@ -112,6 +130,28 @@ function TagInput({
   );
 }
 
+function FieldHint({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-start gap-1.5 text-xs text-muted-foreground mt-1">
+      <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      {children}
+    </p>
+  );
+}
+
+function completionScore(profile: ClientProfile): number {
+  const checks = [
+    Boolean(profile.company_name?.trim()),
+    Boolean(profile.business_description?.trim()),
+    (profile.naics_codes?.length ?? 0) > 0,
+    (profile.certifications?.length ?? 0) > 0,
+    (profile.core_capabilities?.length ?? 0) > 0,
+    Boolean(profile.annual_revenue_tier),
+    Boolean(profile.employee_count_tier),
+  ];
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+}
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<ClientProfile>({
     naics_codes: [],
@@ -124,6 +164,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
+  const [guideStatus, setGuideStatus] = useState<WorkspaceGuideStatus | null>(null);
+  const [loadingGuide, setLoadingGuide] = useState(false);
 
   useEffect(() => {
     async function fetchProfile() {
@@ -143,6 +186,7 @@ export default function ProfilePage() {
         }
       } catch (error) {
         console.error("Failed to fetch profile:", error);
+        toast.error("Failed to load company profile.");
       } finally {
         setLoading(false);
       }
@@ -161,12 +205,46 @@ export default function ProfilePage() {
       });
       if (res.ok) {
         setSaved(true);
+        toast.success("Company profile saved. Opportunity scoring will use the updated profile.");
         setTimeout(() => setSaved(false), 3000);
+      } else {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || "Failed to save profile");
       }
     } catch (error) {
       console.error("Failed to save profile:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to save profile. Please try again.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleLaunchGuide() {
+    setLoadingGuide(true);
+    try {
+      const [statusRes, docsRes, proposalsRes] = await Promise.all([
+        fetch("/api/workspace/status"),
+        fetch("/api/documents?type=company"),
+        fetch("/api/proposals"),
+      ]);
+
+      const status = statusRes.ok ? await statusRes.json() : {};
+      const docs = docsRes.ok ? await docsRes.json() : [];
+      const proposals = proposalsRes.ok ? await proposalsRes.json() : [];
+
+      setGuideStatus({
+        hasProfile: status.hasProfile ?? false,
+        hasDocuments: Array.isArray(docs) && docs.length > 0,
+        hasOpportunities: Array.isArray(proposals) && proposals.length > 0,
+        hasAnalysis: Array.isArray(proposals) && proposals.some((p: { requirements_count: number }) => p.requirements_count > 0),
+        hasDraft: Array.isArray(proposals) && proposals.some((p: { proposal_sections: unknown[] }) => p.proposal_sections.length > 0),
+      });
+      setShowGuide(true);
+    } catch (error) {
+      console.error("Failed to load guide status:", error);
+      toast.error("Failed to load guide. Please try again.");
+    } finally {
+      setLoadingGuide(false);
     }
   }
 
@@ -174,27 +252,54 @@ export default function ProfilePage() {
     return (
       <div className="flex flex-col items-center justify-center py-16">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground mt-2">Loading company profile...</p>
       </div>
     );
   }
 
+  const score = completionScore(profile);
+
   return (
     <div className="space-y-6 max-w-3xl">
+      {/* Getting Started Guide dialog (preview mode — no data changes) */}
+      <Dialog open={showGuide} onOpenChange={(open) => { if (!open) setShowGuide(false); }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Getting Started Guide</DialogTitle>
+            <DialogDescription>
+              Step-by-step overview of how to use ProposalPilot from setup to export.
+            </DialogDescription>
+          </DialogHeader>
+          {guideStatus ? (
+            <OnboardingGuide
+              hasProfile={guideStatus.hasProfile}
+              hasDocuments={guideStatus.hasDocuments}
+              hasOpportunities={guideStatus.hasOpportunities}
+              hasAnalysis={guideStatus.hasAnalysis}
+              hasDraft={guideStatus.hasDraft}
+              preview
+              onDismiss={() => setShowGuide(false)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Client Profile
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight">Company Profile</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Define your business profile for opportunity matching
+            This profile drives opportunity scoring and RFP matching. The more complete it is, the better the AI can target the right RFPs for you.
           </p>
         </div>
-        <Button onClick={handleSave} disabled={saving} className="gap-2">
+        <Button onClick={handleSave} disabled={saving} className="gap-2 shrink-0">
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : saved ? (
-            "Saved!"
+            <>
+              <CheckCircle2 className="h-4 w-4" />
+              Saved
+            </>
           ) : (
             <>
               <Save className="h-4 w-4" />
@@ -204,6 +309,33 @@ export default function ProfilePage() {
         </Button>
       </div>
 
+      {/* Completion indicator */}
+      <div className="rounded-lg border bg-muted/30 px-4 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium">Profile Completeness</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {score < 50
+                ? "Complete your profile to unlock accurate opportunity scoring"
+                : score < 85
+                ? "Good start — fill in the remaining fields for best results"
+                : "Your profile is well-configured for high-quality matches"}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="h-2 w-32 overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  score >= 85 ? "bg-success" : score >= 50 ? "bg-primary" : "bg-warning"
+                }`}
+                style={{ width: `${score}%` }}
+              />
+            </div>
+            <span className="text-sm font-bold tabular-nums">{score}%</span>
+          </div>
+        </div>
+      </div>
+
       {/* Company Info */}
       <Card>
         <CardHeader>
@@ -211,10 +343,13 @@ export default function ProfilePage() {
             <Building2 className="h-4 w-4" />
             Company Information
           </CardTitle>
+          <CardDescription className="text-xs">
+            Used as the primary identity in proposal headers and agency matching.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="company_name">Company Name</Label>
+            <Label htmlFor="company_name">Company Name <span className="text-destructive">*</span></Label>
             <Input
               id="company_name"
               value={profile.company_name || ""}
@@ -223,9 +358,10 @@ export default function ProfilePage() {
               }
               placeholder="Your company name"
             />
+            <FieldHint>This name appears in the sidebar and is included in your generated proposals.</FieldHint>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="business_description">Business Description</Label>
+            <Label htmlFor="business_description">Business Description <span className="text-destructive">*</span></Label>
             <textarea
               id="business_description"
               value={profile.business_description || ""}
@@ -235,9 +371,10 @@ export default function ProfilePage() {
                   business_description: e.target.value,
                 }))
               }
-              placeholder="Describe what your company does, areas of expertise, and target market"
+              placeholder="Describe what your company does, your areas of expertise, and the types of agencies you target"
               className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
+            <FieldHint>This text is used by the AI to score opportunities and tailor proposal language. Be specific about your domain.</FieldHint>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -260,6 +397,7 @@ export default function ProfilePage() {
                   </option>
                 ))}
               </select>
+              <FieldHint>Filters out contracts above or below your capacity.</FieldHint>
             </div>
             <div className="space-y-2">
               <Label>Employee Count</Label>
@@ -280,15 +418,50 @@ export default function ProfilePage() {
                   </option>
                 ))}
               </select>
+              <FieldHint>Used for small business size standard checks.</FieldHint>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Core Capabilities */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Core Capabilities <span className="text-destructive">*</span></CardTitle>
+          <CardDescription className="text-xs">
+            What your company actually delivers — the AI uses these to match you to relevant RFPs.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <TagInput
+            tags={profile.core_capabilities || []}
+            onAdd={(tag) =>
+              setProfile((p) => ({
+                ...p,
+                core_capabilities: [...(p.core_capabilities || []), tag],
+              }))
+            }
+            onRemove={(tag) =>
+              setProfile((p) => ({
+                ...p,
+                core_capabilities: (p.core_capabilities || []).filter(
+                  (t) => t !== tag
+                ),
+              }))
+            }
+            placeholder="e.g., Cloud Migration, Cybersecurity, DevSecOps"
+          />
+          <FieldHint>Add 5–10 specific capabilities. More detail = better matching.</FieldHint>
         </CardContent>
       </Card>
 
       {/* NAICS & Certifications */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">NAICS Codes</CardTitle>
+          <CardTitle className="text-sm">NAICS Codes <span className="text-destructive">*</span></CardTitle>
+          <CardDescription className="text-xs">
+            Used to match set-asides and filter eligible solicitations.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <TagInput
@@ -307,12 +480,16 @@ export default function ProfilePage() {
             }
             placeholder="Add NAICS code (e.g., 541512)"
           />
+          <FieldHint>Enter your primary and secondary NAICS codes. Press Enter or click + to add each one.</FieldHint>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Certifications</CardTitle>
+          <CardTitle className="text-sm">Certifications <span className="text-destructive">*</span></CardTitle>
+          <CardDescription className="text-xs">
+            Set-aside and eligibility filters are based on your certifications. Select all that apply.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
@@ -341,6 +518,7 @@ export default function ProfilePage() {
               </Button>
             ))}
           </div>
+          <FieldHint>Selecting the wrong certifications can exclude you from eligible contracts — only select what you currently hold.</FieldHint>
         </CardContent>
       </Card>
 
@@ -348,6 +526,9 @@ export default function ProfilePage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm">Contract Preferences</CardTitle>
+          <CardDescription className="text-xs">
+            Narrows discovery results to contracts your firm can realistically pursue.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -362,7 +543,7 @@ export default function ProfilePage() {
                     min_contract_value: Number(e.target.value) || 0,
                   }))
                 }
-                placeholder="0"
+                placeholder="e.g., 100000"
               />
             </div>
             <div className="space-y-2">
@@ -402,36 +583,10 @@ export default function ProfilePage() {
                   ).filter((t) => t !== tag),
                 }))
               }
-              placeholder="e.g., GSA MAS, SEWP V"
+              placeholder="e.g., GSA MAS, SEWP V, CIO-SP4"
             />
+            <FieldHint>Listing your existing contract vehicles boosts your score on on-vehicle opportunities.</FieldHint>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Core Capabilities */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Core Capabilities</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <TagInput
-            tags={profile.core_capabilities || []}
-            onAdd={(tag) =>
-              setProfile((p) => ({
-                ...p,
-                core_capabilities: [...(p.core_capabilities || []), tag],
-              }))
-            }
-            onRemove={(tag) =>
-              setProfile((p) => ({
-                ...p,
-                core_capabilities: (p.core_capabilities || []).filter(
-                  (t) => t !== tag
-                ),
-              }))
-            }
-            placeholder="e.g., Cloud Migration, Cybersecurity, DevOps"
-          />
         </CardContent>
       </Card>
 
@@ -440,6 +595,9 @@ export default function ProfilePage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Preferred Agencies</CardTitle>
+            <CardDescription className="text-xs">
+              Gets higher scores in opportunity ranking.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <TagInput
@@ -461,13 +619,16 @@ export default function ProfilePage() {
                   ),
                 }))
               }
-              placeholder="e.g., NASA, DOD"
+              placeholder="e.g., NASA, DOD, HHS"
             />
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Excluded Agencies</CardTitle>
+            <CardDescription className="text-xs">
+              Filtered out from discovery results.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <TagInput
@@ -489,10 +650,68 @@ export default function ProfilePage() {
                   ),
                 }))
               }
-              placeholder="e.g., IRS"
+              placeholder="e.g., IRS, TSA"
             />
           </CardContent>
         </Card>
+      </div>
+
+      {/* Help & Onboarding */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <HelpCircle className="h-4 w-4" />
+            Help &amp; Getting Started
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Not sure where to start or want a refresher on how the system works?
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Getting Started Guide</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Walks you through the full workflow — from uploading company docs to exporting your first proposal. Shows your actual current progress.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              className="gap-2 shrink-0"
+              onClick={handleLaunchGuide}
+              disabled={loadingGuide}
+            >
+              {loadingGuide ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <BookOpen className="h-4 w-4" />
+              )}
+              Launch Guide
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Save CTA */}
+      <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-4 py-3">
+        <p className="text-sm text-muted-foreground">
+          Changes take effect on the next opportunity discovery run.
+        </p>
+        <Button onClick={handleSave} disabled={saving} className="gap-2 shrink-0">
+          {saving ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : saved ? (
+            <>
+              <CheckCircle2 className="h-4 w-4" />
+              Saved
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4" />
+              Save Profile
+            </>
+          )}
+        </Button>
       </div>
     </div>
   );

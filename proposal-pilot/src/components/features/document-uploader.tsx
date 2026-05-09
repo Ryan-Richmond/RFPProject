@@ -159,14 +159,18 @@ function inferMapping(fileName: string, uploadType: "company" | "rfp"): FileMapp
 }
 
 async function buildPreview(file: File) {
-  if (file.type !== "text/plain") {
-    return "Preview is available after upload for PDF and DOCX files. Confirm by filename, size, and expected mapping.";
+  if (file.type === "application/pdf") {
+    return `PDF detected — content preview is not available in the browser.\n\nVerify this is the correct file before confirming:\n• Filename: ${file.name}\n• Size: ${(file.size / 1024).toFixed(0)} KB\n• Type: PDF document\n\nAfter upload, you can open the original file using the "Open" button in the document list.`;
+  }
+
+  if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    return `Word document detected — content preview is not available in the browser.\n\nVerify this is the correct file before confirming:\n• Filename: ${file.name}\n• Size: ${(file.size / 1024).toFixed(0)} KB\n• Type: DOCX document\n\nAfter upload, you can open the original file using the "Open" button in the document list.`;
   }
 
   const text = await file.text();
   const trimmed = text.trim();
   if (!trimmed) {
-    return "This text file appears to be empty.";
+    return "This text file appears to be empty. Upload a different file.";
   }
 
   return trimmed.length > 1200 ? `${trimmed.slice(0, 1200)}...` : trimmed;
@@ -509,10 +513,13 @@ export function DocumentUploader({
             </div>
             <div className="text-center">
               <p className="text-sm font-medium">{title}</p>
-              <p className="text-xs text-muted-foreground mt-1">{description}</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">{description}</p>
               <p className="text-xs text-muted-foreground/60 mt-2">
-                PDF, DOCX, or TXT • Drag & drop or{" "}
-                <span className="text-primary font-medium">browse</span>
+                PDF, DOCX, or TXT · drag & drop or{" "}
+                <span className="text-primary font-medium">browse files</span>
+              </p>
+              <p className="text-[11px] text-muted-foreground/40 mt-1">
+                Multiple files can be uploaded at once
               </p>
             </div>
             <input
@@ -634,13 +641,19 @@ export function DocumentUploader({
                       </pre>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap justify-end gap-2">
-                    <Button variant="outline" onClick={() => removeFile(file.id)}>
-                      Not this file
-                    </Button>
-                    <Button onClick={() => uploadReviewedFiles([file.id])}>
-                      Confirm upload
-                    </Button>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Nothing is uploaded until you confirm.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => removeFile(file.id)}>
+                        Remove
+                      </Button>
+                      <Button onClick={() => uploadReviewedFiles([file.id])} className="gap-2">
+                        <Upload className="h-3.5 w-3.5" />
+                        Upload & Index
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ) : null}
