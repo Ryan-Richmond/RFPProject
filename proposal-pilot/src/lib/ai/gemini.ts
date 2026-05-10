@@ -8,7 +8,8 @@ import {
 } from "./mock";
 
 export const GEMINI_MODEL = "gemini-flash-latest";
-export const GEMINI_EMBEDDING_MODEL = "gemini-embedding-2";
+export const GEMINI_EMBEDDING_MODEL = "gemini-embedding-001";
+export const GEMINI_EMBEDDING_DIMENSIONS = 1024;
 
 function getApiKey(): string {
   const key = process.env.GEMINI_API_KEY;
@@ -322,10 +323,12 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const ai = getGeminiClient();
   const embeddings: number[][] = [];
 
-  // Gemini embedding API accepts an array of strings
+  // Gemini embedding API accepts an array of strings.
+  // outputDimensionality matches the evidence_chunks.embedding vector(1024) column.
   const response = await ai.models.embedContent({
     model: GEMINI_EMBEDDING_MODEL,
     contents: texts,
+    config: { outputDimensionality: GEMINI_EMBEDDING_DIMENSIONS },
   });
 
   if (response.embeddings) {
