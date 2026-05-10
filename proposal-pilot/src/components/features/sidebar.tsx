@@ -18,7 +18,6 @@ import {
   Users,
   ChevronDown,
   Plus,
-  Loader2,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -30,16 +29,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -102,10 +91,6 @@ export function Sidebar() {
   const router = useRouter();
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newWorkspaceName, setNewWorkspaceName] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const activeWorkspace = workspaces.find(
     (workspace) => workspace.workspaceId === activeWorkspaceId
@@ -151,21 +136,19 @@ export function Sidebar() {
     router.refresh();
   }
 
-  async function handleCreateWorkspace(e: React.FormEvent) {
-    e.preventDefault();
-    setCreating(true);
-    setCreateError(null);
+  async function handleCreateWorkspace() {
+    const name = window.prompt("Name your new workspace (e.g. Meridian Federal Group)");
+    if (!name || !name.trim()) return;
 
     const response = await fetch("/api/workspaces", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newWorkspaceName.trim() }),
+      body: JSON.stringify({ name: name.trim() }),
     });
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      setCreateError(payload.error || "Failed to create workspace");
-      setCreating(false);
+      window.alert(payload.error || "Failed to create workspace");
       return;
     }
 
@@ -175,9 +158,6 @@ export function Sidebar() {
       { workspaceId: workspace.id, workspaceName: workspace.name, role: "owner" },
     ]);
     setActiveWorkspaceId(workspace.id);
-    setNewWorkspaceName("");
-    setCreateOpen(false);
-    setCreating(false);
     router.refresh();
   }
 
@@ -189,39 +169,6 @@ export function Sidebar() {
   }
 
   return (
-    <>
-    <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) { setNewWorkspaceName(""); setCreateError(null); } }}>
-      <DialogContent className="sm:max-w-[380px]">
-        <DialogHeader>
-          <DialogTitle>Create new workspace</DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleCreateWorkspace} className="space-y-4 pt-2">
-          <div className="space-y-2">
-            <Label htmlFor="new-workspace-name">Workspace name</Label>
-            <Input
-              id="new-workspace-name"
-              placeholder="Meridian Federal Group"
-              value={newWorkspaceName}
-              onChange={(e) => setNewWorkspaceName(e.target.value)}
-              required
-              autoFocus
-            />
-          </div>
-          {createError && (
-            <p className="text-sm text-destructive">{createError}</p>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={creating || !newWorkspaceName.trim()}>
-              {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
     <aside className="flex h-screen w-[220px] flex-col border-r bg-sidebar">
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-5 py-5">
@@ -312,7 +259,7 @@ export function Sidebar() {
               <DropdownMenuItem disabled>No workspaces found</DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setCreateOpen(true)}>
+            <DropdownMenuItem onClick={handleCreateWorkspace}>
               <Plus className="mr-2 h-4 w-4" />
               Create new workspace
             </DropdownMenuItem>
@@ -330,6 +277,5 @@ export function Sidebar() {
         </DropdownMenu>
       </div>
     </aside>
-    </>
   );
 }
