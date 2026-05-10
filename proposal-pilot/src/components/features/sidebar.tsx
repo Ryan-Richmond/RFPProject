@@ -24,6 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -237,27 +238,29 @@ export function Sidebar() {
             <ChevronDown className="h-3.5 w-3.5 text-sidebar-foreground/40" />
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-[200px]">
-            <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
-            {workspaces.length ? (
-              workspaces.map((workspace) => (
-                <DropdownMenuItem
-                  key={workspace.workspaceId}
-                  onClick={() => handleWorkspaceSwitch(workspace.workspaceId)}
-                  className="flex-col items-start gap-0.5"
-                >
-                  <span className="line-clamp-1">
-                    {workspace.workspaceName}
-                  </span>
-                  <span className="text-[11px] capitalize text-muted-foreground">
-                    {workspace.workspaceId === activeWorkspaceId
-                      ? "Active"
-                      : workspace.role}
-                  </span>
-                </DropdownMenuItem>
-              ))
-            ) : (
-              <DropdownMenuItem disabled>No workspaces found</DropdownMenuItem>
-            )}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+              {workspaces.length ? (
+                workspaces.map((workspace) => (
+                  <DropdownMenuItem
+                    key={workspace.workspaceId}
+                    onClick={() => handleWorkspaceSwitch(workspace.workspaceId)}
+                    className="flex-col items-start gap-0.5"
+                  >
+                    <span className="line-clamp-1">
+                      {workspace.workspaceName}
+                    </span>
+                    <span className="text-[11px] capitalize text-muted-foreground">
+                      {workspace.workspaceId === activeWorkspaceId
+                        ? "Active"
+                        : workspace.role}
+                    </span>
+                  </DropdownMenuItem>
+                ))
+              ) : (
+                <DropdownMenuItem disabled>No workspaces found</DropdownMenuItem>
+              )}
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleCreateWorkspace}>
               <Plus className="mr-2 h-4 w-4" />
