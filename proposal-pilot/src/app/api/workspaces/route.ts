@@ -4,6 +4,7 @@ import {
   ACTIVE_WORKSPACE_COOKIE_OPTIONS,
   getWorkspaceContext,
 } from "@/lib/workspace";
+import { createClient } from "@/lib/supabase/server";
 
 export async function GET() {
   try {
@@ -21,6 +22,54 @@ export async function GET() {
     console.error("Workspaces GET error:", error);
     return NextResponse.json(
       { error: "Failed to fetch workspaces" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+
+    if (!name) {
+      return NextResponse.json(
+        { error: "Workspace name is required" },
+        { status: 400 }
+      );
+    }
+
+    const { data: workspace, error: wsError } = await supabase
+      .from("workspaces")
+      .insert({ name, owner_id: user.id })
+      .select("id, name")
+      .single();
+
+    if (wsError || !workspace) {
+      throw wsError ?? new Error("Failed to create workspace");
+    }
+
+    const response = NextResponse.json({ workspace }, { status: 201 });
+    response.cookies.set(
+      ACTIVE_WORKSPACE_COOKIE,
+      workspace.id,
+      ACTIVE_WORKSPACE_COOKIE_OPTIONS
+    );
+
+    return response;
+  } catch (error) {
+    console.error("Workspaces POST error:", error);
+    return NextResponse.json(
+      { error: "Failed to create workspace" },
       { status: 500 }
     );
   }
