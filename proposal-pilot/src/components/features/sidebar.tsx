@@ -133,8 +133,7 @@ export function Sidebar() {
 
     if (!response.ok) return;
 
-    setActiveWorkspaceId(workspaceId);
-    router.refresh();
+    window.location.assign("/workspace");
   }
 
   async function handleCreateWorkspace() {
@@ -153,13 +152,7 @@ export function Sidebar() {
       return;
     }
 
-    const { workspace } = await response.json();
-    setWorkspaces((prev) => [
-      ...prev,
-      { workspaceId: workspace.id, workspaceName: workspace.name, role: "owner" },
-    ]);
-    setActiveWorkspaceId(workspace.id);
-    router.refresh();
+    window.location.assign("/workspace");
   }
 
   async function handleSignOut() {
