@@ -204,11 +204,22 @@ ${chunks.map((c, i) => `[Chunk ${i}]: ${c.slice(0, 300)}`).join("\n\n")}`,
       source_document_id: documentId,
     };
   } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message: unknown }).message)
+        : typeof error === "string"
+        ? error
+        : JSON.stringify(error);
+
+    console.error("indexDocument failed:", errorMessage, error);
+
     await supabase
       .from("source_documents")
       .update({
         processing_status: "error",
-        processing_error: error instanceof Error ? error.message : "Unknown error",
+        processing_error: errorMessage.slice(0, 1000),
       })
       .eq("id", documentId);
 
