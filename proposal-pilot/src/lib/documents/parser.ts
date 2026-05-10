@@ -46,10 +46,8 @@ function countWords(text: string): number {
 async function parsePDF(buffer: Buffer): Promise<ParsedDocument> {
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
-  const [textResult, infoResult] = await Promise.all([
-    parser.getText(),
-    parser.getInfo({ parsePageInfo: true }),
-  ]);
+  const textResult = await parser.getText();
+  const infoResult = await parser.getInfo({ parsePageInfo: true });
   await parser.destroy();
 
   const text = textResult.text.trim();
