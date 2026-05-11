@@ -44,19 +44,19 @@ function countWords(text: string): number {
 }
 
 async function parsePDF(buffer: Buffer): Promise<ParsedDocument> {
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: buffer });
-  const textResult = await parser.getText();
-  const infoResult = await parser.getInfo({ parsePageInfo: true });
-  await parser.destroy();
+  const { getDocumentProxy, extractText } = await import("unpdf");
+  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const { totalPages, text: rawText } = await extractText(pdf, { mergePages: true });
+  const { info } = await pdf.getMetadata();
+  await pdf.destroy();
 
-  const text = textResult.text.trim();
+  const text = rawText.trim();
 
   return {
     text,
     metadata: {
-      title: infoResult.info?.Title || undefined,
-      pageCount: infoResult.total || undefined,
+      title: (info as Record<string, unknown>)?.Title as string | undefined,
+      pageCount: totalPages || undefined,
       wordCount: countWords(text),
       format: "pdf",
     },
