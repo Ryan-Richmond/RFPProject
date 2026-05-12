@@ -19,6 +19,8 @@ import {
 import { toast } from "sonner";
 import { formatAgency, formatValueRange } from "@/lib/opportunities/format";
 import { findNaicsByCode } from "@/lib/profile/naics-codes";
+import { Skeleton } from "@/components/ui/skeleton";
+import { celebrateOnce } from "@/lib/celebrate";
 
 interface Opportunity {
   id: string;
@@ -116,8 +118,16 @@ export default function OpportunitiesPage() {
     try {
       const res = await fetch("/api/opportunities");
       if (res.ok) {
-        const data = await res.json();
+        const data: Opportunity[] = await res.json();
         setOpportunities(data);
+
+        // Celebrate the first time the user sees a high-fit (≥75) opportunity.
+        const hasHighFit = data.some(
+          (opp) => (opp.opportunity_scores?.[0]?.overall_score ?? 0) >= 75
+        );
+        if (hasHighFit) {
+          celebrateOnce("first-pursue-score", { particleCount: 60 });
+        }
       }
     } catch (error) {
       console.error("Failed to fetch opportunities:", error);
@@ -169,15 +179,15 @@ export default function OpportunitiesPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-content-rise">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
+          <h1 className="text-3xl font-bold tracking-tight">
             Opportunity Pipeline
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Discover and score government RFP opportunities
+          <p className="text-muted-foreground text-sm mt-1.5">
+            Discover and score government RFP opportunities matched to your profile
           </p>
         </div>
         <Button
@@ -262,28 +272,47 @@ export default function OpportunitiesPage() {
 
       {/* Opportunities Grid */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground mt-3">
-            Loading opportunities...
-          </p>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <Card key={i} className="h-[260px]">
+              <CardHeader className="pb-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <Skeleton className="h-4 w-4/5" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="h-3 w-2/5" />
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-11/12" />
+                <Skeleton className="h-3 w-3/4" />
+                <div className="flex gap-2 pt-2">
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                  <Skeleton className="h-5 w-20 rounded-full" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       ) : filteredOpportunities.length === 0 ? (
-        <Card>
+        <Card className="overflow-hidden border-primary/10 bg-gradient-to-br from-primary/[0.04] via-background to-violet/[0.04]">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <Target className="h-5 w-5 text-muted-foreground" />
+            <div className="relative mb-4">
+              <div className="absolute inset-0 -m-3 rounded-full bg-primary/10 blur-xl" />
+              <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl gradient-indigo shadow-lg">
+                <Target className="h-7 w-7 text-white" />
+              </div>
             </div>
-            <p className="text-sm font-medium">No opportunities yet</p>
-            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-              Complete your company profile first, then click "Run Discovery" to
-              search SAM.gov for matching federal RFPs. Each result is scored
-              against your capabilities.
+            <p className="text-lg font-semibold">Your pipeline is ready to fill</p>
+            <p className="text-sm text-muted-foreground mt-1.5 max-w-md leading-relaxed">
+              Run Discovery and we&apos;ll scan SAM.gov for federal RFPs that match
+              your NAICS, set-asides, and capabilities — each scored against
+              your real profile so the top of your list is actually worth your time.
             </p>
-            <div className="flex flex-wrap justify-center gap-3 mt-5">
+            <div className="flex flex-wrap justify-center gap-3 mt-6">
               <Link href="/profile">
                 <Button variant="outline" size="sm">
-                  Complete Profile First
+                  Review Profile First
                 </Button>
               </Link>
               <Button size="sm" onClick={handleDiscover} disabled={discovering} className="gap-2">
@@ -294,6 +323,12 @@ export default function OpportunitiesPage() {
                 )}
                 Run Discovery
               </Button>
+            </div>
+            <div className="mt-5 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span>Tip — press</span>
+              <kbd className="kbd">⌘</kbd>
+              <kbd className="kbd">K</kbd>
+              <span>anywhere to jump or run actions.</span>
             </div>
           </CardContent>
         </Card>
@@ -317,7 +352,7 @@ export default function OpportunitiesPage() {
                 href={`/opportunities/${opp.id}`}
                 className="block"
               >
-                <Card className="group flex h-full flex-col cursor-pointer transition-all hover:shadow-md hover:border-primary/20">
+                <Card className="group flex h-full flex-col cursor-pointer card-lift hover:border-primary/20">
                   <CardHeader className="pb-3 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <CardTitle

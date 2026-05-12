@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DocumentUploader } from "@/components/features/document-uploader";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import {
   BookOpen,
   FileText,
@@ -271,6 +272,10 @@ export default function KnowledgeBasePage() {
         description="Past proposals, capability statements, resumes, past performance references, and certifications"
         onComplete={() => {
           fetchDocuments();
+          // First successful upload — small celebration to signal the AI now has real evidence.
+          import("@/lib/celebrate").then(({ celebrateOnce }) => {
+            celebrateOnce("first-document-uploaded", { particleCount: 50 });
+          });
         }}
       />
 
@@ -281,14 +286,14 @@ export default function KnowledgeBasePage() {
           { label: "Processing", value: stats.processing, icon: Loader2 },
           { label: "Errors", value: stats.errors, icon: AlertCircle },
         ].map((stat) => (
-          <Card key={stat.label}>
+          <Card key={stat.label} className="card-lift">
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
                 <stat.icon className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
                 <p className="text-sm font-medium">{stat.label}</p>
-                <p className="text-2xl font-bold">{stat.value}</p>
+                <AnimatedNumber value={stat.value} className="text-2xl font-bold tabular-nums" />
               </div>
             </CardContent>
           </Card>

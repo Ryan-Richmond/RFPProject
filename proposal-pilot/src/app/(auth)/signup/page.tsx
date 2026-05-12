@@ -114,9 +114,9 @@ export default function SignupPage() {
   }
 
   return (
-    <Card>
-      <CardHeader className="text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl gradient-indigo">
+    <Card className="border-none shadow-none lg:border lg:shadow-sm">
+      <CardHeader className="lg:text-left text-center">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl gradient-indigo lg:hidden">
           <PenTool className="h-6 w-6 text-white" />
         </div>
         <CardTitle className="text-2xl">Create your workspace</CardTitle>

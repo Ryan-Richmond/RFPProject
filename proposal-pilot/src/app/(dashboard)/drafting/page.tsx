@@ -125,6 +125,8 @@ export default function DraftingPage() {
       }
 
       toast.success("Proposal draft generated.");
+      const { celebrateOnce } = await import("@/lib/celebrate");
+      celebrateOnce("first-draft-generated", { particleCount: 100 });
       await fetchProposals();
     } catch (error) {
       toast.error(

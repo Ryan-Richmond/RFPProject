@@ -603,6 +603,8 @@ export default function ProposalDetailPage() {
           ? "Clean proposal export downloaded."
           : "Annotated proposal export downloaded."
       );
+      const { celebrateOnce } = await import("@/lib/celebrate");
+      celebrateOnce("first-proposal-exported", { particleCount: 140, durationMs: 3000 });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Export failed");
     } finally {
