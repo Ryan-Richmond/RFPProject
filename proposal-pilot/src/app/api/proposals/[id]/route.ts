@@ -69,6 +69,7 @@ export async function GET(
       { data: complianceMatrix },
       { data: revisions },
       { data: outcome },
+      { data: outlineSections },
     ] = await Promise.all([
       supabase
         .from("extracted_requirements")
@@ -94,6 +95,12 @@ export async function GET(
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from("proposal_outline_sections")
+        .select("*")
+        .eq("proposal_draft_id", id)
+        .eq("workspace_id", workspaceId)
+        .order("section_order", { ascending: true }),
     ]);
 
     const revisionsBySection = ((revisions || []) as ProposalSectionRevisionSummary[]).reduce<
@@ -133,6 +140,7 @@ export async function GET(
       ),
       section_revisions: revisions || [],
       proposal_outcome: outcome || null,
+      outline_sections: outlineSections || [],
       requirements: requirements || [],
       compliance_matrix: complianceMatrix || [],
     });

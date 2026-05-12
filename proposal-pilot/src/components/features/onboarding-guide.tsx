@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, Circle, X, ArrowRight, UserCircle, BookOpen, Target, FileSearch, Download } from "lucide-react";
+import { CheckCircle2, X, ArrowRight, UserCircle, BookOpen, Target, FileSearch, Download } from "lucide-react";
 import { toast } from "sonner";
 
 interface OnboardingGuideProps {
