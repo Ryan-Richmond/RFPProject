@@ -9,6 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Save, Loader2, Plus, X, Info, CheckCircle2, BookOpen, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
+import { SuggestingTagInput, type TagSuggestion } from "@/components/features/suggesting-tag-input";
+import { searchCapabilities, COMMON_CAPABILITIES } from "@/lib/profile/capabilities";
+import { searchNaicsCodes, findNaicsByCode } from "@/lib/profile/naics-codes";
 
 interface ClientProfile {
   company_name?: string;
@@ -206,6 +209,53 @@ export default function ProfilePage() {
     router.push("/workspace?guide=open");
   }
 
+  async function fetchAiSuggestions(
+    kind: "naics" | "capabilities",
+    freeText: string,
+    existing: string[]
+  ): Promise<TagSuggestion[]> {
+    const res = await fetch("/api/profile/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, text: freeText, existing }),
+    });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      throw new Error(payload.error || "Suggestion request failed");
+    }
+    const data = (await res.json()) as {
+      suggestions?: Array<{ value: string; label?: string; rationale?: string }>;
+    };
+    return (data.suggestions || []).map((s) => ({
+      value: s.value,
+      label: s.label,
+      rationale: s.rationale,
+    }));
+  }
+
+  function getCapabilitySuggestions(query: string, existing: string[]): TagSuggestion[] {
+    return searchCapabilities(query, existing, 8).map((s) => ({
+      value: s.label,
+      hint: s.group,
+    }));
+  }
+
+  function getNaicsSuggestions(query: string, existing: string[]): TagSuggestion[] {
+    const existingSet = new Set(existing);
+    return searchNaicsCodes(query, 8)
+      .filter((s) => !existingSet.has(s.code))
+      .map((s) => ({
+        value: s.code,
+        label: s.title,
+        hint: s.code,
+      }));
+  }
+
+  function renderNaicsTag(code: string): string {
+    const known = findNaicsByCode(code);
+    return known ? `${code} — ${known.title}` : code;
+  }
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
@@ -368,7 +418,7 @@ export default function ProfilePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TagInput
+          <SuggestingTagInput
             tags={profile.core_capabilities || []}
             onAdd={(tag) =>
               setProfile((p) => ({
@@ -384,9 +434,17 @@ export default function ProfilePage() {
                 ),
               }))
             }
-            placeholder="e.g., Cloud Migration, Cybersecurity, DevSecOps"
+            placeholder="Start typing — e.g., Cloud Migration, Cybersecurity, DevSecOps"
+            getLocalSuggestions={getCapabilitySuggestions}
+            fetchAiSuggestions={(text, existing) =>
+              fetchAiSuggestions("capabilities", text, existing)
+            }
+            aiButtonLabel="Suggest from my docs"
           />
-          <FieldHint>Add 5–10 specific capabilities. More detail = better matching.</FieldHint>
+          <FieldHint>
+            Start typing to pick from {COMMON_CAPABILITIES.reduce((n, g) => n + g.items.length, 0)}+ common capabilities, or use{" "}
+            <strong>Suggest from my docs</strong> to let the AI propose capabilities based on your business description and uploaded files.
+          </FieldHint>
         </CardContent>
       </Card>
 
@@ -399,23 +457,35 @@ export default function ProfilePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TagInput
+          <SuggestingTagInput
             tags={profile.naics_codes || []}
-            onAdd={(tag) =>
+            onAdd={(tag) => {
+              const code = tag.replace(/\D/g, "").slice(0, 6);
+              if (!code) return;
               setProfile((p) => ({
                 ...p,
-                naics_codes: [...(p.naics_codes || []), tag],
-              }))
-            }
+                naics_codes: [...(p.naics_codes || []), code],
+              }));
+            }}
             onRemove={(tag) =>
               setProfile((p) => ({
                 ...p,
                 naics_codes: (p.naics_codes || []).filter((t) => t !== tag),
               }))
             }
-            placeholder="Add NAICS code (e.g., 541512)"
+            placeholder="Search by code or description (e.g., 541512 or 'cloud migration')"
+            getLocalSuggestions={getNaicsSuggestions}
+            fetchAiSuggestions={(text, existing) =>
+              fetchAiSuggestions("naics", text, existing)
+            }
+            renderTagLabel={renderNaicsTag}
+            aiButtonLabel="Suggest from my docs"
           />
-          <FieldHint>Enter your primary and secondary NAICS codes. Press Enter or click + to add each one.</FieldHint>
+          <FieldHint>
+            Most people don&apos;t know NAICS by number — type what your business does (e.g., &ldquo;software&rdquo;, &ldquo;construction&rdquo;,
+            &ldquo;cybersecurity&rdquo;) and pick from the matches, or use <strong>Suggest from my docs</strong> for AI-recommended codes
+            based on your business description and uploaded files.
+          </FieldHint>
         </CardContent>
       </Card>
 
