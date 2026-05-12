@@ -11,13 +11,21 @@ import {
   DollarSign,
   ExternalLink,
   FileSearch,
+  Lightbulb,
   Loader2,
   Shield,
   Target,
   Trophy,
   Users,
   ArrowLeft,
+  ChevronRight,
 } from "lucide-react";
+import {
+  formatAgency,
+  formatValueRange,
+  isUrl,
+  getScoreImprovementTip,
+} from "@/lib/opportunities/format";
 
 interface OpportunityDetail {
   id: string;
@@ -48,10 +56,20 @@ interface OpportunityDetail {
     incumbent_info?: string;
     competitive_landscape?: string;
     citations?: string[];
+    estimated_contract_value_min?: number | null;
+    estimated_contract_value_max?: number | null;
   }>;
 }
 
-function ScoreBar({ label, score }: { label: string; score: number }) {
+function ScoreBar({
+  label,
+  score,
+  tip,
+}: {
+  label: string;
+  score: number;
+  tip?: string | null;
+}) {
   const color =
     score >= 75
       ? "bg-success"
@@ -71,6 +89,12 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
           style={{ width: `${score}%` }}
         />
       </div>
+      {tip && (
+        <div className="flex items-start gap-1.5 pt-1 pl-0.5">
+          <Lightbulb className="h-3 w-3 text-warning shrink-0 mt-0.5" />
+          <p className="text-[11px] text-muted-foreground leading-snug">{tip}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -135,6 +159,18 @@ export default function OpportunityDetailPage() {
   }
 
   const score = opportunity.opportunity_scores?.[0];
+  const agencyFormatted = formatAgency(opportunity.agency);
+  const hasRawValue = !!(
+    opportunity.estimated_value_min || opportunity.estimated_value_max
+  );
+  const valueLabel = hasRawValue
+    ? formatValueRange(opportunity.estimated_value_min, opportunity.estimated_value_max)
+    : formatValueRange(
+        score?.estimated_contract_value_min,
+        score?.estimated_contract_value_max
+      );
+
+  const descriptionIsUrl = isUrl(opportunity.description);
 
   return (
     <div className="space-y-6">
@@ -204,11 +240,21 @@ export default function OpportunityDetailPage() {
       {/* Overview Cards */}
       <div className="grid gap-4 sm:grid-cols-4">
         <Card>
-          <CardContent className="flex items-center gap-3 pt-6">
-            <Building2 className="h-5 w-5 text-muted-foreground" />
-            <div>
+          <CardContent className="flex items-start gap-3 pt-6">
+            <Building2 className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+            <div className="min-w-0">
               <p className="text-xs text-muted-foreground">Agency</p>
-              <p className="text-sm font-medium">{opportunity.agency}</p>
+              <p className="text-sm font-medium leading-tight">
+                {agencyFormatted.primary}
+              </p>
+              {agencyFormatted.subUnit && (
+                <p
+                  className="text-xs text-muted-foreground mt-0.5 truncate"
+                  title={agencyFormatted.segments.join(" › ")}
+                >
+                  {agencyFormatted.subUnit}
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -226,15 +272,16 @@ export default function OpportunityDetailPage() {
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="flex items-center gap-3 pt-6">
-            <DollarSign className="h-5 w-5 text-muted-foreground" />
+          <CardContent className="flex items-start gap-3 pt-6">
+            <DollarSign className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
             <div>
               <p className="text-xs text-muted-foreground">Estimated Value</p>
-              <p className="text-sm font-medium">
-                {opportunity.estimated_value_min || opportunity.estimated_value_max
-                  ? `$${(opportunity.estimated_value_min || 0).toLocaleString()} - $${(opportunity.estimated_value_max || 0).toLocaleString()}`
-                  : "N/A"}
-              </p>
+              <p className="text-sm font-medium">{valueLabel}</p>
+              {valueLabel !== "N/A" && !hasRawValue && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  AI estimate
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -250,6 +297,20 @@ export default function OpportunityDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Agency breadcrumb */}
+      {agencyFormatted.segments.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          {agencyFormatted.segments.map((seg, i) => (
+            <span key={i} className="flex items-center gap-1">
+              <span>{seg}</span>
+              {i < agencyFormatted.segments.length - 1 && (
+                <ChevronRight className="h-3 w-3" />
+              )}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-6">
         {/* Left Column: Score Breakdown */}
@@ -280,23 +341,41 @@ export default function OpportunityDetailPage() {
                   <ScoreBar
                     label="NAICS Match"
                     score={score.naics_match_score}
+                    tip={getScoreImprovementTip("naics", score.naics_match_score)}
                   />
-                  <ScoreBar label="Size Fit" score={score.size_fit_score} />
+                  <ScoreBar
+                    label="Size Fit"
+                    score={score.size_fit_score}
+                    tip={getScoreImprovementTip("size", score.size_fit_score)}
+                  />
                   <ScoreBar
                     label="Capability Match"
                     score={score.capability_match_score}
+                    tip={getScoreImprovementTip(
+                      "capability",
+                      score.capability_match_score
+                    )}
                   />
                   <ScoreBar
                     label="Set-Aside Eligibility"
                     score={score.set_aside_eligibility_score}
+                    tip={getScoreImprovementTip(
+                      "set_aside",
+                      score.set_aside_eligibility_score
+                    )}
                   />
                   <ScoreBar
                     label="Competition Level"
                     score={score.competition_level_score}
+                    tip={getScoreImprovementTip(
+                      "competition",
+                      score.competition_level_score
+                    )}
                   />
                   <ScoreBar
                     label="Timeline Fit"
                     score={score.timeline_fit_score}
+                    tip={getScoreImprovementTip("timeline", score.timeline_fit_score)}
                   />
                   {score.score_rationale && (
                     <div className="pt-3 border-t">
@@ -317,22 +396,53 @@ export default function OpportunityDetailPage() {
 
         {/* Right Column: Intel Panels */}
         <div className="col-span-7 space-y-4">
-          {/* Description */}
-          {opportunity.description && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Target className="h-4 w-4" />
-                  Description
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm leading-relaxed">
+          {/* Description / AI Summary */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Target className="h-4 w-4" />
+                Description
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {opportunity.description && !descriptionIsUrl ? (
+                <p className="text-sm leading-relaxed whitespace-pre-line">
                   {opportunity.description}
                 </p>
-              </CardContent>
-            </Card>
-          )}
+              ) : score?.score_rationale ? (
+                <p className="text-sm leading-relaxed text-foreground">
+                  {score.score_rationale}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">
+                  Full description is hosted on SAM.gov. Open the source notice
+                  for the complete statement of work.
+                </p>
+              )}
+              {descriptionIsUrl && opportunity.description && (
+                <a
+                  href={opportunity.description}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  Open full description on SAM.gov
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              {opportunity.source_url && (
+                <a
+                  href={opportunity.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline ml-4"
+                >
+                  View notice page
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Agency Intel */}
           {score?.agency_intel && (
