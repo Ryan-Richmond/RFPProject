@@ -18,9 +18,22 @@ import {
   Users,
   ChevronDown,
   Plus,
+  Loader2,
+  Search,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +45,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 const navItems = [
   {
@@ -92,6 +106,9 @@ export function Sidebar() {
   const router = useRouter();
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [creating, setCreating] = useState(false);
 
   const activeWorkspace = workspaces.find(
     (workspace) => workspace.workspaceId === activeWorkspaceId
@@ -136,23 +153,31 @@ export function Sidebar() {
     window.location.assign("/workspace");
   }
 
-  async function handleCreateWorkspace() {
-    const name = window.prompt("Name your new workspace (e.g. Meridian Federal Group)");
-    if (!name || !name.trim()) return;
+  function openCreateWorkspace() {
+    setCreateName("");
+    setCreateOpen(true);
+  }
 
-    const response = await fetch("/api/workspaces", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim() }),
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      window.alert(payload.error || "Failed to create workspace");
-      return;
+  async function submitCreateWorkspace() {
+    const trimmed = createName.trim();
+    if (!trimmed) return;
+    setCreating(true);
+    try {
+      const response = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "Failed to create workspace");
+      }
+      toast.success(`Workspace "${trimmed}" created.`);
+      window.location.assign("/workspace");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create workspace");
+      setCreating(false);
     }
-
-    window.location.assign("/workspace");
   }
 
   async function handleSignOut() {
@@ -175,6 +200,27 @@ export function Sidebar() {
       </div>
 
       <Separator />
+
+      {/* Quick search / command trigger */}
+      <div className="px-3 pt-3">
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window === "undefined") return;
+            window.dispatchEvent(
+              new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })
+            );
+          }}
+          className="flex w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar/40 px-3 py-2 text-xs text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+        >
+          <Search className="h-3.5 w-3.5" />
+          <span className="flex-1 text-left">Quick actions…</span>
+          <span className="flex items-center gap-0.5">
+            <kbd className="kbd">⌘</kbd>
+            <kbd className="kbd">K</kbd>
+          </span>
+        </button>
+      </div>
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-4">
@@ -255,7 +301,7 @@ export function Sidebar() {
               )}
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleCreateWorkspace}>
+            <DropdownMenuItem onClick={openCreateWorkspace}>
               <Plus className="mr-2 h-4 w-4" />
               Create new workspace
             </DropdownMenuItem>
@@ -272,6 +318,54 @@ export function Sidebar() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <Dialog open={createOpen} onOpenChange={(next) => !creating && setCreateOpen(next)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create a new workspace</DialogTitle>
+            <DialogDescription>
+              Workspaces keep proposals, documents, and team members for one client or business unit separate.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="new-workspace-name">Workspace name</Label>
+            <Input
+              id="new-workspace-name"
+              value={createName}
+              autoFocus
+              onChange={(e) => setCreateName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && createName.trim()) {
+                  e.preventDefault();
+                  void submitCreateWorkspace();
+                }
+              }}
+              placeholder="e.g. Meridian Federal Group"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCreateOpen(false)}
+              disabled={creating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitCreateWorkspace}
+              disabled={creating || !createName.trim()}
+              className="gap-2"
+            >
+              {creating ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              Create workspace
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }
