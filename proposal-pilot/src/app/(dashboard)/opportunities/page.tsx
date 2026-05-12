@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatAgency, formatValueRange } from "@/lib/opportunities/format";
+import { findNaicsByCode } from "@/lib/profile/naics-codes";
 
 interface Opportunity {
   id: string;
@@ -33,6 +34,7 @@ interface Opportunity {
   status: string;
   source_url?: string;
   description_preview?: string | null;
+  ai_enriched?: boolean;
   opportunity_scores?: Array<{
     overall_score: number;
     recommendation: string;
@@ -135,10 +137,14 @@ export default function OpportunitiesPage() {
       }
 
       const result = await response.json();
+      const enrichedCount = result.enrichment?.enriched ?? 0;
+      const enrichmentNote = enrichedCount
+        ? ` AI analysis complete for ${enrichedCount} top match${enrichedCount === 1 ? "" : "es"}.`
+        : "";
       toast.success(
         `Discovery complete: ${result.opportunitiesCreated || 0} new, ${
           result.opportunitiesRefreshed || 0
-        } refreshed, ${result.opportunitiesSkipped || 0} skipped.`
+        } refreshed, ${result.opportunitiesSkipped || 0} skipped.${enrichmentNote}`
       );
       await fetchOpportunities();
     } catch (error) {
@@ -343,7 +349,7 @@ export default function OpportunitiesPage() {
                       </p>
                     ) : (
                       <p className="text-xs text-muted-foreground italic">
-                        No summary available — open for full details.
+                        AI summary pending — open to run analysis or view on SAM.gov.
                       </p>
                     )}
 
@@ -377,15 +383,19 @@ export default function OpportunitiesPage() {
                     </div>
 
                     <div className="flex flex-wrap gap-1">
-                      {opp.naics_codes?.slice(0, 3).map((code) => (
-                        <Badge
-                          key={code}
-                          variant="outline"
-                          className="text-xs px-1.5 py-0"
-                        >
-                          {code}
-                        </Badge>
-                      ))}
+                      {opp.naics_codes?.slice(0, 3).map((code) => {
+                        const lookup = findNaicsByCode(code);
+                        return (
+                          <Badge
+                            key={code}
+                            variant="outline"
+                            className="text-xs px-1.5 py-0"
+                            title={lookup ? `${code} — ${lookup.title}` : code}
+                          >
+                            {code}
+                          </Badge>
+                        );
+                      })}
                       {opp.naics_codes && opp.naics_codes.length > 3 && (
                         <Badge variant="outline" className="text-xs px-1.5 py-0">
                           +{opp.naics_codes.length - 3}

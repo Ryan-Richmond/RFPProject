@@ -19,10 +19,16 @@ export async function POST(request: NextRequest) {
     const topK = typeof body.topK === "number" ? body.topK : undefined;
     const minDeterministicScore =
       typeof body.minDeterministicScore === "number" ? body.minDeterministicScore : undefined;
+    const samOpportunityIds = Array.isArray(body.samOpportunityIds)
+      ? (body.samOpportunityIds as unknown[]).filter(
+          (id): id is string => typeof id === "string"
+        )
+      : undefined;
 
     const result = await enrichTopOpportunitiesWithAI(workspaceId, {
       topK,
       minDeterministicScore,
+      samOpportunityIds,
     });
 
     await snapshotWorkspaceScoreHistory(

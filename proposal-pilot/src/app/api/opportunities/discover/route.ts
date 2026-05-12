@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runFullDiscoveryCycle } from "@/services/opportunity-discovery";
+import { enrichTopOpportunitiesWithAI } from "@/services/opportunity-scoring/ai-enrichment";
 import { getWorkspaceContext } from "@/lib/workspace";
 
 export async function POST() {
@@ -16,10 +17,23 @@ export async function POST() {
 
     const result = await runFullDiscoveryCycle(workspaceId);
 
+    // Chain AI enrichment so users immediately see summaries + value estimates
+    // for the top results without a second manual step.
+    let enrichment: { processed: number; enriched: number; failed: number } | null = null;
+    try {
+      enrichment = await enrichTopOpportunitiesWithAI(workspaceId, {
+        topK: 30,
+        minDeterministicScore: 30,
+      });
+    } catch (err) {
+      console.error("Auto-enrichment after discovery failed:", err);
+    }
+
     return NextResponse.json({
       message: "Discovery completed",
       workspaceId,
       ...result,
+      enrichment,
     });
   } catch (error) {
     console.error("Discovery API error:", error);

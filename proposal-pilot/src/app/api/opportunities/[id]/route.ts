@@ -5,6 +5,7 @@ import {
   getRecommendationOverride,
   resolveRecommendationWithOverride,
 } from "@/services/opportunity-scoring/explainability";
+import { buildSamViewUrl } from "@/lib/opportunities/format";
 
 export async function GET(
   _request: NextRequest,
@@ -29,6 +30,7 @@ export async function GET(
         *,
         sam_opportunities!inner(
           id,
+          notice_id,
           title,
           solicitation_number,
           full_parent_path_name,
@@ -81,7 +83,10 @@ export async function GET(
         description:
           (typeof opp.raw_payload?.description === "string" && opp.raw_payload.description) ||
           null,
-        source_url: opp.source_url || opp.description_url,
+        source_url: buildSamViewUrl(opp.notice_id, opp.source_url, opp.description_url),
+        notice_id: opp.notice_id,
+        ai_enriched: !!samScored.ai_scored_at,
+        ai_scored_at: samScored.ai_scored_at,
         status: samScored.is_disqualified ? "disqualified" : "active",
         opportunity_scores: [
           {
