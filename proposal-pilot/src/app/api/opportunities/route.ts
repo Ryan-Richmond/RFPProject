@@ -55,6 +55,14 @@ export async function GET() {
         const opp = row.sam_opportunities;
         const override = overrideMap.get(opp.id);
         const recommendation = override?.override_recommendation || row.recommendation;
+        const rawDescription =
+          typeof opp.raw_payload?.description === "string"
+            ? opp.raw_payload.description
+            : null;
+        const descriptionPreview =
+          rawDescription && !/^https?:\/\//i.test(rawDescription)
+            ? rawDescription.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 240)
+            : null;
         return {
           id: opp.id,
           title: opp.title,
@@ -70,6 +78,9 @@ export async function GET() {
                 ? [opp.naics_code]
                 : [],
           source_url: opp.source_url || opp.description_url,
+          description_preview: descriptionPreview,
+          estimated_value_min: row.ai_estimated_contract_value_min ?? null,
+          estimated_value_max: row.ai_estimated_contract_value_max ?? null,
           status: row.is_disqualified ? "disqualified" : "active",
           opportunity_scores: [
             {
