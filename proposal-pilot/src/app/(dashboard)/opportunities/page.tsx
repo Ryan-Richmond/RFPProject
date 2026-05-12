@@ -276,7 +276,7 @@ export default function OpportunitiesPage() {
             </div>
             <p className="text-sm font-medium">No opportunities yet</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-              Complete your company profile first, then click "Run Discovery" to
+              Complete your company profile first, then click &ldquo;Run Discovery&rdquo; to
               search SAM.gov for matching federal RFPs. Each result is scored
               against your capabilities.
             </p>

@@ -94,6 +94,22 @@ interface ComplianceFinding {
   suggestion?: string | null;
 }
 
+interface ProposalOutlineSection {
+  id: string;
+  section_number?: string | null;
+  title: string;
+  volume?: string | null;
+  section_type: string;
+  section_order: number;
+  page_limit?: number | null;
+  target_word_count?: number | null;
+  evaluation_weight?: "high" | "medium" | "low" | null;
+  instructions?: string | null;
+  source_refs?: string[] | null;
+  mapped_requirement_ids?: string[] | null;
+  status: string;
+}
+
 interface ProposalOutcomeRecord {
   id: string;
   outcome: "won" | "lost" | "pending" | "no_bid";
@@ -118,6 +134,7 @@ interface ProposalDetail {
     evaluation_ref?: string | null;
     evaluation_text?: string | null;
   }>;
+  outline_sections: ProposalOutlineSection[];
   solicitations: {
     id: string;
     title: string;
@@ -273,6 +290,7 @@ export default function ProposalDetailPage() {
   const [runningAnalysis, setRunningAnalysis] = useState(false);
   const [generatingDraft, setGeneratingDraft] = useState(false);
   const [runningCompliance, setRunningCompliance] = useState(false);
+  const [generatingOutline, setGeneratingOutline] = useState(false);
   const [estimatingWin, setEstimatingWin] = useState(false);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
@@ -434,6 +452,34 @@ export default function ProposalDetailPage() {
     }
   }
 
+
+  async function generateProposalOutline(regenerate = false) {
+    if (!proposal) return;
+
+    setGeneratingOutline(true);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/outline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regenerate }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Outline generation failed");
+      }
+
+      await fetchProposal();
+      toast.success(regenerate ? "Outline regenerated." : "Outline generated.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Outline generation failed"
+      );
+    } finally {
+      setGeneratingOutline(false);
+    }
+  }
+
   async function startDraftFlow() {
     if (!proposal) return;
 
@@ -472,10 +518,6 @@ export default function ProposalDetailPage() {
     } finally {
       setGeneratingDraft(false);
     }
-  }
-
-  async function runDraft() {
-    return startDraftFlow();
   }
 
   async function runComplianceCheck() {
@@ -771,6 +813,7 @@ export default function ProposalDetailPage() {
       <Tabs defaultValue="analysis" className="space-y-4">
         <TabsList>
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
+          <TabsTrigger value="outline">Outline</TabsTrigger>
           <TabsTrigger value="draft">Draft</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
           <TabsTrigger value="competitive-intel">Competitive Intel</TabsTrigger>
@@ -913,6 +956,124 @@ export default function ProposalDetailPage() {
                         {entry.evaluation_text}
                       </p>
                     ) : null}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+
+
+        <TabsContent value="outline" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-sm">Annotated Proposal Outline</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Generate a solicitation-driven outline before drafting so sections
+                  inherit source refs, instructions, requirement mappings, and review
+                  metadata.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => generateProposalOutline(proposal.outline_sections.length > 0)}
+                disabled={generatingOutline || proposal.requirements.length === 0}
+                title={proposal.requirements.length === 0 ? "Run analysis before generating an outline" : undefined}
+              >
+                {generatingOutline ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileSearch className="h-3.5 w-3.5" />
+                )}
+                {proposal.outline_sections.length > 0 ? "Regenerate" : "Generate Outline"}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {proposal.outline_sections.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No outline has been generated yet. Generate an outline to convert
+                    extracted requirements and compliance matrix rows into draft-ready
+                    sections.
+                  </p>
+                </div>
+              ) : (
+                proposal.outline_sections.map((section) => (
+                  <div key={section.id} className="rounded-lg border p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {section.section_number ? (
+                            <Badge variant="outline" className="font-mono">
+                              {section.section_number}
+                            </Badge>
+                          ) : null}
+                          <h3 className="text-sm font-semibold">{section.title}</h3>
+                          <Badge variant="secondary" className="capitalize">
+                            {section.section_type.replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        {section.volume ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {section.volume}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {section.evaluation_weight ? (
+                          <Badge variant="outline">{section.evaluation_weight} weight</Badge>
+                        ) : null}
+                        {section.target_word_count ? (
+                          <Badge variant="outline">{section.target_word_count} words</Badge>
+                        ) : null}
+                        <Badge variant="secondary">{section.status.replace(/_/g, " ")}</Badge>
+                      </div>
+                    </div>
+
+                    {section.instructions ? (
+                      <p className="mt-3 whitespace-pre-line text-sm leading-relaxed">
+                        {section.instructions}
+                      </p>
+                    ) : null}
+
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Mapped Requirements
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(section.mapped_requirement_ids || []).length > 0 ? (
+                            section.mapped_requirement_ids?.map((id) => (
+                              <Badge key={id} variant="outline" className="font-mono text-xs">
+                                {id}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No mappings</span>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Source References
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(section.source_refs || []).length > 0 ? (
+                            section.source_refs?.map((ref) => (
+                              <Badge key={ref} variant="secondary" className="text-xs">
+                                {ref}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No source refs</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ))
               )}

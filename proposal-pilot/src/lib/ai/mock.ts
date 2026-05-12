@@ -217,6 +217,82 @@ function buildSectionResponse(input: string) {
   };
 }
 
+
+function buildOutlineResponse() {
+  return [
+    {
+      section_number: "1.0",
+      title: "Executive Summary",
+      volume: "Technical Volume",
+      section_type: "executive_summary",
+      section_order: 1,
+      page_limit: 2,
+      target_word_count: 800,
+      evaluation_weight: "high",
+      instructions:
+        "Summarize the proposed secure modernization approach, strongest win themes, and evaluator benefits.",
+      source_refs: ["Section L.5", "Section M.2"],
+      mapped_requirement_ids: ["REQ-001", "REQ-002", "REQ-003", "REQ-004"],
+    },
+    {
+      section_number: "2.0",
+      title: "Technical Approach",
+      volume: "Technical Volume",
+      section_type: "technical",
+      section_order: 2,
+      page_limit: 18,
+      target_word_count: 2400,
+      evaluation_weight: "high",
+      instructions:
+        "Describe cloud migration, cybersecurity controls, sustainment, and measurable delivery controls.",
+      source_refs: ["Section L.5.1", "Section M.2 Factor 1"],
+      mapped_requirement_ids: ["REQ-001", "REQ-002"],
+    },
+    {
+      section_number: "3.0",
+      title: "Management Approach",
+      volume: "Technical Volume",
+      section_type: "management",
+      section_order: 3,
+      page_limit: 10,
+      target_word_count: 1500,
+      evaluation_weight: "medium",
+      instructions:
+        "Provide staffing, governance, escalation, sprint cadence, risk controls, and reporting approach.",
+      source_refs: ["Section L.5.2", "Section M.2 Factor 2"],
+      mapped_requirement_ids: ["REQ-003"],
+    },
+    {
+      section_number: "4.0",
+      title: "Past Performance",
+      volume: "Past Performance Volume",
+      section_type: "past_performance",
+      section_order: 4,
+      page_limit: 8,
+      target_word_count: 1200,
+      evaluation_weight: "medium",
+      instructions:
+        "Provide three recent and relevant references, outcomes, contract details, and customer contact placeholders.",
+      source_refs: ["Section L.6.1", "Section M.2 Factor 3"],
+      mapped_requirement_ids: ["REQ-004"],
+    },
+    {
+      section_number: "5.0",
+      title: "Compliance and Submission Requirements",
+      volume: "Compliance Volume",
+      section_type: "compliance",
+      section_order: 5,
+      page_limit: null,
+      target_word_count: 500,
+      evaluation_weight: "low",
+      instructions:
+        "Track page, format, SAM registration, and certification requirements for final review.",
+      source_refs: ["Section L.2.1", "Section K.1"],
+      mapped_requirement_ids: ["REQ-005", "REQ-006"],
+    },
+  ];
+}
+
 function buildComplianceResponse(input: string) {
   const requirementIds = extractRequirementIds(input);
   const ids = requirementIds.length
@@ -312,6 +388,8 @@ export function getMockAgentResponse(
     payload = buildScoreResponse();
   } else if (input.includes("estimate the win probability")) {
     payload = buildWinProbabilityResponse();
+  } else if (input.includes("Generate an annotated proposal outline")) {
+    payload = buildOutlineResponse();
   } else if (input.includes("Check this proposal draft against")) {
     payload = buildComplianceResponse(input);
   } else if (input.includes("Generate the \"")) {
