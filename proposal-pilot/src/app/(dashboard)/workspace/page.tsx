@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { PipelineStepper, type StageStatus } from "@/components/features/pipeline-stepper";
 import {
   getWorkflowStatus,
@@ -340,7 +341,7 @@ export default function WorkspacePage() {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Link href="/knowledge-base">
-          <Card className="group cursor-pointer transition-all hover:shadow-md hover:border-primary/20">
+          <Card className="group cursor-pointer card-lift hover:border-primary/20">
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary/15">
                 <BookOpen className="h-6 w-6 text-primary" />
@@ -357,7 +358,7 @@ export default function WorkspacePage() {
         </Link>
 
         <Link href="/drafting">
-          <Card className="group cursor-pointer transition-all hover:shadow-md hover:border-primary/20">
+          <Card className="group cursor-pointer card-lift hover:border-primary/20">
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary/15">
                 <PenTool className="h-6 w-6 text-primary" />
@@ -374,7 +375,7 @@ export default function WorkspacePage() {
         </Link>
 
         <Link href="/compliance">
-          <Card className="group cursor-pointer transition-all hover:shadow-md hover:border-primary/20">
+          <Card className="group cursor-pointer card-lift hover:border-primary/20">
             <CardContent className="flex items-center gap-4 pt-6">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary/15">
                 <Shield className="h-6 w-6 text-primary" />
@@ -393,20 +394,22 @@ export default function WorkspacePage() {
 
       <div className="grid gap-4 sm:grid-cols-4">
         {[
-          { label: "Proposals", value: stats.proposals, icon: FolderOpen },
-          { label: "Documents Indexed", value: stats.documents, icon: BookOpen },
+          { label: "Proposals", value: stats.proposals, icon: FolderOpen, numeric: true as const },
+          { label: "Documents Indexed", value: stats.documents, icon: BookOpen, numeric: true as const },
           {
             label: "Requirements Tracked",
             value: stats.requirementsTracked,
             icon: FileSearch,
+            numeric: true as const,
           },
           {
             label: "Est. Time Saved",
             value: stats.estimatedTimeSaved,
             icon: Clock,
+            numeric: false as const,
           },
         ].map((stat) => (
-          <Card key={stat.label}>
+          <Card key={stat.label} className="card-lift">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xs font-medium text-muted-foreground">
                 {stat.label}
@@ -414,7 +417,15 @@ export default function WorkspacePage() {
               <stat.icon className="h-4 w-4 text-muted-foreground/50" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stat.value}</div>
+              {stat.numeric && typeof stat.value === "number" ? (
+                <AnimatedNumber
+                  value={stat.value}
+                  durationMs={900}
+                  className="text-2xl font-bold tabular-nums"
+                />
+              ) : (
+                <div className="text-2xl font-bold tabular-nums">{stat.value}</div>
+              )}
             </CardContent>
           </Card>
         ))}
