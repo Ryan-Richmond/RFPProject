@@ -102,6 +102,29 @@ export function isUrl(value?: string | null): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
 
+// SAM provides two kinds of URL: the user-facing `sam.gov/opp/<noticeId>/view`
+// page (browsable) and the `api.sam.gov/prod/opportunities/v1/noticedesc?noticeid=…`
+// endpoint (requires an API key, 404s in a browser). Normalize to the browsable form.
+export function buildSamViewUrl(
+  noticeId?: string | null,
+  sourceUrl?: string | null,
+  descriptionUrl?: string | null
+): string | null {
+  const candidates = [sourceUrl, descriptionUrl].filter(Boolean) as string[];
+  for (const url of candidates) {
+    if (/^https?:\/\/sam\.gov\/opp\//i.test(url)) return url;
+  }
+  if (noticeId) {
+    return `https://sam.gov/opp/${noticeId}/view`;
+  }
+  for (const url of candidates) {
+    if (!/api\.sam\.gov/i.test(url)) return url;
+    const match = url.match(/noticeid=([0-9a-f-]+)/i);
+    if (match) return `https://sam.gov/opp/${match[1]}/view`;
+  }
+  return null;
+}
+
 export interface ScoreTip {
   label: string;
   tip: string;

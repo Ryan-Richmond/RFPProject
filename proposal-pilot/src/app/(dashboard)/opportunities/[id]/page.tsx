@@ -14,18 +14,20 @@ import {
   Lightbulb,
   Loader2,
   Shield,
+  Sparkles,
   Target,
   Trophy,
   Users,
   ArrowLeft,
   ChevronRight,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   formatAgency,
   formatValueRange,
-  isUrl,
   getScoreImprovementTip,
 } from "@/lib/opportunities/format";
+import { findNaicsByCode } from "@/lib/profile/naics-codes";
 
 interface OpportunityDetail {
   id: string;
@@ -41,6 +43,9 @@ interface OpportunityDetail {
   naics_codes?: string[];
   description?: string;
   source_url?: string;
+  notice_id?: string;
+  ai_enriched?: boolean;
+  ai_scored_at?: string | null;
   status: string;
   opportunity_scores?: Array<{
     overall_score: number;
@@ -107,23 +112,55 @@ export default function OpportunityDetailPage() {
   );
   const [loading, setLoading] = useState(true);
   const [promoting, setPromoting] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+
+  async function fetchOpportunity() {
+    try {
+      const res = await fetch(`/api/opportunities/${params.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setOpportunity(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch opportunity:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function fetchOpportunity() {
-      try {
-        const res = await fetch(`/api/opportunities/${params.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          setOpportunity(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch opportunity:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchOpportunity();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
+
+  async function handleRunAnalysis() {
+    if (!opportunity) return;
+    setEnriching(true);
+    try {
+      const res = await fetch("/api/opportunities/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ samOpportunityIds: [opportunity.id] }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || "Analysis failed");
+      }
+      const result = await res.json();
+      if (result.enriched > 0) {
+        toast.success("AI analysis complete. Refreshing details...");
+      } else if (result.failed > 0) {
+        toast.error("AI analysis failed for this opportunity. Check the logs.");
+      } else {
+        toast.message("No new analysis was produced.");
+      }
+      await fetchOpportunity();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Analysis failed");
+    } finally {
+      setEnriching(false);
+    }
+  }
 
   async function handleStartProposal() {
     setPromoting(true);
@@ -170,7 +207,11 @@ export default function OpportunityDetailPage() {
         score?.estimated_contract_value_max
       );
 
-  const descriptionIsUrl = isUrl(opportunity.description);
+  const aiEnriched = Boolean(opportunity.ai_enriched);
+  const hasDescriptionText =
+    typeof opportunity.description === "string" &&
+    opportunity.description.trim().length > 0 &&
+    !/^https?:\/\//i.test(opportunity.description.trim());
 
   return (
     <div className="space-y-6">
@@ -217,9 +258,25 @@ export default function OpportunityDetailPage() {
               >
                 <Button variant="outline" size="sm" className="gap-1">
                   <ExternalLink className="h-3.5 w-3.5" />
-                  View Source
+                  View on SAM.gov
                 </Button>
               </a>
+            )}
+            {!aiEnriched && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRunAnalysis}
+                disabled={enriching}
+                className="gap-1.5"
+              >
+                {enriching ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {enriching ? "Analyzing..." : "Run AI Analysis"}
+              </Button>
             )}
             <Button
               onClick={handleStartProposal}
@@ -236,6 +293,34 @@ export default function OpportunityDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* AI analysis pending banner */}
+      {!aiEnriched && (
+        <div className="flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/5 px-4 py-3">
+          <Sparkles className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">AI analysis hasn&apos;t run for this opportunity yet</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              The Score Breakdown below uses deterministic factors only (NAICS, set-aside, timeline).
+              Running AI analysis adds a tailored summary, value estimate, capability fit score, and competition assessment based on your company profile and uploaded docs.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRunAnalysis}
+            disabled={enriching}
+            className="gap-1.5 shrink-0"
+          >
+            {enriching ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            {enriching ? "Analyzing..." : "Run Analysis"}
+          </Button>
+        </div>
+      )}
 
       {/* Overview Cards */}
       <div className="grid gap-4 sm:grid-cols-4">
@@ -401,11 +486,11 @@ export default function OpportunityDetailPage() {
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">
                 <Target className="h-4 w-4" />
-                Description
+                {aiEnriched ? "AI Summary" : "Description"}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {opportunity.description && !descriptionIsUrl ? (
+              {hasDescriptionText ? (
                 <p className="text-sm leading-relaxed whitespace-pre-line">
                   {opportunity.description}
                 </p>
@@ -415,29 +500,20 @@ export default function OpportunityDetailPage() {
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground italic">
-                  Full description is hosted on SAM.gov. Open the source notice
-                  for the complete statement of work.
+                  No on-page description available yet. SAM.gov hosts the full
+                  statement of work — open the notice on SAM.gov for the
+                  complete details, or run AI analysis to generate a tailored
+                  summary against your company profile.
                 </p>
-              )}
-              {descriptionIsUrl && opportunity.description && (
-                <a
-                  href={opportunity.description}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                >
-                  Open full description on SAM.gov
-                  <ExternalLink className="h-3 w-3" />
-                </a>
               )}
               {opportunity.source_url && (
                 <a
                   href={opportunity.source_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline ml-4"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                 >
-                  View notice page
+                  Open full notice on SAM.gov
                   <ExternalLink className="h-3 w-3" />
                 </a>
               )}
@@ -496,19 +572,47 @@ export default function OpportunityDetailPage() {
             </Card>
           )}
 
-          {/* NAICS Codes */}
+          {/* NAICS Codes — the codes the agency filed this opportunity under */}
           {opportunity.naics_codes && opportunity.naics_codes.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-sm">NAICS Codes</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  The industry codes this opportunity is filed under by the
+                  agency. To bid, your company profile should include at least
+                  one of these codes (or an adjacent code in the same family).
+                </p>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  {opportunity.naics_codes.map((code) => (
-                    <Badge key={code} variant="outline">
-                      {code}
-                    </Badge>
-                  ))}
+                <div className="space-y-2">
+                  {opportunity.naics_codes.map((code) => {
+                    const lookup = findNaicsByCode(code);
+                    return (
+                      <div
+                        key={code}
+                        className="flex items-baseline gap-3 rounded-md border bg-muted/30 px-3 py-2"
+                      >
+                        <Badge variant="outline" className="font-mono text-xs shrink-0">
+                          {code}
+                        </Badge>
+                        <p className="text-sm leading-snug">
+                          {lookup?.title || (
+                            <span className="text-muted-foreground italic">
+                              Description not on file — look up at{" "}
+                              <a
+                                href={`https://www.census.gov/naics/?input=${code}&year=2022`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline"
+                              >
+                                census.gov/naics
+                              </a>
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

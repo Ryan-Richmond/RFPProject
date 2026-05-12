@@ -6,6 +6,7 @@ import { recordDeadLetter, withRetry } from "@/services/opportunity-monitoring/h
 interface EnrichmentConfig {
   topK?: number;
   minDeterministicScore?: number;
+  samOpportunityIds?: string[];
 }
 
 function clampScore(value: number): number {
@@ -127,8 +128,34 @@ export async function enrichTopOpportunitiesWithAI(
   const startedAt = Date.now();
   const topK = config.topK ?? 50;
   const minScore = config.minDeterministicScore ?? 50;
+  const targetedIds = config.samOpportunityIds && config.samOpportunityIds.length > 0
+    ? config.samOpportunityIds
+    : null;
 
   const supabase = await createClient();
+
+  let rankedQuery = supabase
+    .from("sam_opportunity_scores")
+    .select(
+      `
+      sam_opportunity_id,
+      overall_score,
+      recommendation,
+      is_disqualified,
+      sam_opportunities!inner(id,title,full_parent_path_name,naics_code,naics_codes,type_of_set_aside,response_deadline,classification_code,raw_payload)
+    `
+    )
+    .eq("workspace_id", workspaceId);
+
+  if (targetedIds) {
+    rankedQuery = rankedQuery.in("sam_opportunity_id", targetedIds);
+  } else {
+    rankedQuery = rankedQuery
+      .eq("is_disqualified", false)
+      .gte("overall_score", minScore)
+      .order("overall_score", { ascending: false })
+      .limit(topK);
+  }
 
   const [{ data: profile, error: profileError }, { data: rankedRows, error: rankedError }, { data: evidenceChunks, error: evidenceError }] =
     await Promise.all([
@@ -137,22 +164,7 @@ export async function enrichTopOpportunitiesWithAI(
         .select("workspace_id,company_name,business_description,core_capabilities,naics_codes,certifications")
         .eq("workspace_id", workspaceId)
         .single(),
-      supabase
-        .from("sam_opportunity_scores")
-        .select(
-          `
-          sam_opportunity_id,
-          overall_score,
-          recommendation,
-          is_disqualified,
-          sam_opportunities!inner(id,title,full_parent_path_name,naics_code,naics_codes,type_of_set_aside,response_deadline,classification_code,raw_payload)
-        `
-        )
-        .eq("workspace_id", workspaceId)
-        .eq("is_disqualified", false)
-        .gte("overall_score", minScore)
-        .order("overall_score", { ascending: false })
-        .limit(topK),
+      rankedQuery,
       supabase
         .from("evidence_chunks")
         .select("id,content,keywords,category,agency")

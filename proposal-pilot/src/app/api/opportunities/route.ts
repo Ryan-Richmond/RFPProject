@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getWorkspaceContext } from "@/lib/workspace";
+import { buildSamViewUrl } from "@/lib/opportunities/format";
 
 export async function GET() {
   try {
@@ -20,6 +21,7 @@ export async function GET() {
         *,
         sam_opportunities!inner(
           id,
+          notice_id,
           title,
           solicitation_number,
           full_parent_path_name,
@@ -77,10 +79,12 @@ export async function GET() {
               : opp.naics_code
                 ? [opp.naics_code]
                 : [],
-          source_url: opp.source_url || opp.description_url,
+          source_url: buildSamViewUrl(opp.notice_id, opp.source_url, opp.description_url),
+          notice_id: opp.notice_id,
           description_preview: descriptionPreview,
           estimated_value_min: row.ai_estimated_contract_value_min ?? null,
           estimated_value_max: row.ai_estimated_contract_value_max ?? null,
+          ai_enriched: !!row.ai_scored_at,
           status: row.is_disqualified ? "disqualified" : "active",
           opportunity_scores: [
             {
