@@ -51,6 +51,7 @@ interface ProposalRequirement {
 
 interface ProposalSection {
   id: string;
+  outline_section_id?: string | null;
   title: string;
   content: string;
   section_order: number;
@@ -94,6 +95,51 @@ interface ComplianceFinding {
   suggestion?: string | null;
 }
 
+interface ProposalOutlineSection {
+  id: string;
+  section_number?: string | null;
+  title: string;
+  volume?: string | null;
+  section_type: string;
+  section_order: number;
+  page_limit?: number | null;
+  target_word_count?: number | null;
+  evaluation_weight?: "high" | "medium" | "low" | null;
+  instructions?: string | null;
+  source_refs?: string[] | null;
+  mapped_requirement_ids?: string[] | null;
+  status: string;
+}
+
+interface ProposalActionItem {
+  id: string;
+  proposal_section_id?: string | null;
+  outline_section_id?: string | null;
+  owner_user_id?: string | null;
+  source: "placeholder" | "compliance_finding" | "low_confidence" | "pending_review" | "manual";
+  requirement_id?: string | null;
+  title: string;
+  description?: string | null;
+  severity: "critical" | "high" | "medium" | "low";
+  status: "open" | "in_progress" | "blocked" | "resolved" | "accepted_risk";
+  due_at?: string | null;
+  created_at: string;
+}
+
+interface ProposalOutlineEditForm {
+  section_number: string;
+  title: string;
+  volume: string;
+  section_type: string;
+  page_limit: string;
+  target_word_count: string;
+  evaluation_weight: "" | "high" | "medium" | "low";
+  instructions: string;
+  source_refs: string;
+  mapped_requirement_ids: string;
+  status: string;
+}
+
 interface ProposalOutcomeRecord {
   id: string;
   outcome: "won" | "lost" | "pending" | "no_bid";
@@ -108,6 +154,7 @@ interface ProposalDetail {
   total_word_count?: number | null;
   proposal_sections: ProposalSection[];
   compliance_findings: ComplianceFinding[];
+  proposal_action_items: ProposalActionItem[];
   section_revisions?: ProposalSectionRevision[];
   proposal_outcome?: ProposalOutcomeRecord | null;
   requirements: ProposalRequirement[];
@@ -118,6 +165,7 @@ interface ProposalDetail {
     evaluation_ref?: string | null;
     evaluation_text?: string | null;
   }>;
+  outline_sections: ProposalOutlineSection[];
   solicitations: {
     id: string;
     title: string;
@@ -273,13 +321,19 @@ export default function ProposalDetailPage() {
   const [runningAnalysis, setRunningAnalysis] = useState(false);
   const [generatingDraft, setGeneratingDraft] = useState(false);
   const [runningCompliance, setRunningCompliance] = useState(false);
+  const [generatingOutline, setGeneratingOutline] = useState(false);
   const [estimatingWin, setEstimatingWin] = useState(false);
+  const [syncingActionItems, setSyncingActionItems] = useState(false);
+  const [updatingActionItemId, setUpdatingActionItemId] = useState<string | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
   const [savingSectionId, setSavingSectionId] = useState<string | null>(null);
-  const [exportingMode, setExportingMode] = useState<"clean" | "annotated" | null>(
+  const [exportingMode, setExportingMode] = useState<"clean" | "annotated" | "review_package" | null>(
     null
   );
+  const [editingOutlineSectionId, setEditingOutlineSectionId] = useState<string | null>(null);
+  const [outlineEdits, setOutlineEdits] = useState<ProposalOutlineEditForm | null>(null);
+  const [savingOutlineId, setSavingOutlineId] = useState<string | null>(null);
   const [savingOutcome, setSavingOutcome] = useState(false);
   const [draftWarning, setDraftWarning] = useState<string | null>(null);
   const [outcomeForm, setOutcomeForm] = useState({
@@ -324,6 +378,51 @@ export default function ProposalDetailPage() {
         : "",
       notes: proposal.proposal_outcome?.notes || "",
     });
+  }, [proposal]);
+
+
+  const exportReadiness = useMemo(() => {
+    if (!proposal) return null;
+
+    const placeholders = proposal.proposal_sections.reduce(
+      (sum, section) => sum + (section.placeholders?.length || 0),
+      0
+    );
+    const weakFindings = proposal.compliance_findings.filter((finding) =>
+      ["partially_addressed", "weak", "unaddressed"].includes(finding.status)
+    ).length;
+    const pendingSections = proposal.proposal_sections.filter(
+      (section) => section.review_status !== "accepted"
+    ).length;
+    const lowConfidenceSections = proposal.proposal_sections.filter(
+      (section) => section.confidence === "low"
+    ).length;
+    const unmappedRequirements = proposal.requirements.filter(
+      (requirement) =>
+        !proposal.outline_sections.some((section) =>
+          section.mapped_requirement_ids?.includes(requirement.requirement_id)
+        )
+    ).length;
+    const openActionItems = proposal.proposal_action_items.filter(
+      (item) => !["resolved", "accepted_risk"].includes(item.status)
+    ).length;
+
+    return {
+      placeholders,
+      weakFindings,
+      pendingSections,
+      lowConfidenceSections,
+      unmappedRequirements,
+      openActionItems,
+      ready:
+        proposal.proposal_sections.length > 0 &&
+        placeholders === 0 &&
+        weakFindings === 0 &&
+        pendingSections === 0 &&
+        lowConfidenceSections === 0 &&
+        unmappedRequirements === 0 &&
+        openActionItems === 0,
+    };
   }, [proposal]);
 
   const pipelineStages = useMemo(() => {
@@ -408,6 +507,21 @@ export default function ProposalDetailPage() {
     };
   }, [proposal]);
 
+  const actionItemsByStatus = useMemo(() => {
+    const statuses: ProposalActionItem["status"][] = [
+      "open",
+      "in_progress",
+      "blocked",
+      "resolved",
+      "accepted_risk",
+    ];
+
+    return statuses.map((status) => ({
+      status,
+      items: (proposal?.proposal_action_items || []).filter((item) => item.status === status),
+    }));
+  }, [proposal]);
+
   async function runAnalysis() {
     if (!proposal) return;
 
@@ -434,8 +548,138 @@ export default function ProposalDetailPage() {
     }
   }
 
+
+  async function generateProposalOutline(regenerate = false) {
+    if (!proposal) return;
+
+    if (
+      regenerate &&
+      proposal.outline_sections.length > 0 &&
+      !window.confirm("Regenerate the outline? This will replace existing outline edits.")
+    ) {
+      return;
+    }
+
+    setGeneratingOutline(true);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/outline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regenerate }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Outline generation failed");
+      }
+
+      await fetchProposal();
+      toast.success(regenerate ? "Outline regenerated." : "Outline generated.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Outline generation failed"
+      );
+    } finally {
+      setGeneratingOutline(false);
+    }
+  }
+
+  function openOutlineEditor(section: ProposalOutlineSection) {
+    setEditingOutlineSectionId(section.id);
+    setOutlineEdits({
+      section_number: section.section_number || "",
+      title: section.title,
+      volume: section.volume || "",
+      section_type: section.section_type || "other",
+      page_limit: section.page_limit != null ? String(section.page_limit) : "",
+      target_word_count:
+        section.target_word_count != null ? String(section.target_word_count) : "",
+      evaluation_weight: section.evaluation_weight || "",
+      instructions: section.instructions || "",
+      source_refs: (section.source_refs || []).join(", "),
+      mapped_requirement_ids: (section.mapped_requirement_ids || []).join(", "),
+      status: section.status || "planned",
+    });
+  }
+
+  function closeOutlineEditor() {
+    setEditingOutlineSectionId(null);
+    setOutlineEdits(null);
+  }
+
+  async function saveOutlineSection() {
+    if (!proposal || !editingOutlineSectionId || !outlineEdits) return;
+
+    setSavingOutlineId(editingOutlineSectionId);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/outline`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sectionId: editingOutlineSectionId,
+          patch: {
+            section_number: outlineEdits.section_number.trim() || null,
+            title: outlineEdits.title.trim(),
+            volume: outlineEdits.volume.trim() || null,
+            section_type: outlineEdits.section_type,
+            page_limit: outlineEdits.page_limit ? Number(outlineEdits.page_limit) : null,
+            target_word_count: outlineEdits.target_word_count
+              ? Number(outlineEdits.target_word_count)
+              : null,
+            evaluation_weight: outlineEdits.evaluation_weight || null,
+            instructions: outlineEdits.instructions.trim() || null,
+            source_refs: outlineEdits.source_refs
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+            mapped_requirement_ids: outlineEdits.mapped_requirement_ids
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+            status: outlineEdits.status,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Outline update failed");
+      }
+
+      closeOutlineEditor();
+      await fetchProposal();
+      toast.success("Outline section updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Outline update failed");
+    } finally {
+      setSavingOutlineId(null);
+    }
+  }
+
   async function startDraftFlow() {
     if (!proposal) return;
+
+    const hasOutline = proposal.outline_sections.length > 0;
+    const hasUnapprovedOutline = proposal.outline_sections.some(
+      (section) => section.status === "planned" || section.status === "blocked"
+    );
+
+    if (!hasOutline) {
+      const proceed = window.confirm(
+        "No outline exists yet. Generate a solicitation-driven outline before drafting? Choose Cancel to draft anyway."
+      );
+      if (proceed) {
+        await generateProposalOutline(false);
+        return;
+      }
+    }
+
+    if (hasUnapprovedOutline) {
+      const proceed = window.confirm(
+        "Some outline sections are still planned or blocked. Draft anyway?"
+      );
+      if (!proceed) return;
+    }
 
     const warning = await getDraftReadinessWarning();
     if (warning) {
@@ -472,10 +716,6 @@ export default function ProposalDetailPage() {
     } finally {
       setGeneratingDraft(false);
     }
-  }
-
-  async function runDraft() {
-    return startDraftFlow();
   }
 
   async function runComplianceCheck() {
@@ -531,6 +771,57 @@ export default function ProposalDetailPage() {
     }
   }
 
+  async function syncActionItems() {
+    if (!proposal) return;
+
+    setSyncingActionItems(true);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/action-items`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Action item sync failed");
+      }
+
+      await fetchProposal();
+      toast.success("Action items synced.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Action item sync failed");
+    } finally {
+      setSyncingActionItems(false);
+    }
+  }
+
+  async function updateActionItem(
+    itemId: string,
+    patch: Partial<Pick<ProposalActionItem, "status" | "severity" | "due_at" | "owner_user_id">>
+  ) {
+    if (!proposal) return;
+
+    setUpdatingActionItemId(itemId);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/action-items/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patch }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Action item update failed");
+      }
+
+      await fetchProposal();
+      toast.success("Action item updated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Action item update failed");
+    } finally {
+      setUpdatingActionItemId(null);
+    }
+  }
+
   async function saveSection(
     sectionId: string,
     payload: { content?: string; reviewStatus?: string }
@@ -566,7 +857,7 @@ export default function ProposalDetailPage() {
     }
   }
 
-  async function exportProposal(mode: "clean" | "annotated") {
+  async function exportProposal(mode: "clean" | "annotated" | "review_package") {
     if (!proposal) return;
 
     setExportingMode(mode);
@@ -601,6 +892,8 @@ export default function ProposalDetailPage() {
       toast.success(
         mode === "clean"
           ? "Clean proposal export downloaded."
+          : mode === "review_package"
+          ? "Review package export downloaded."
           : "Annotated proposal export downloaded."
       );
     } catch (error) {
@@ -672,6 +965,152 @@ export default function ProposalDetailPage() {
             <Button onClick={executeDraft} disabled={generatingDraft} className="gap-2">
               {generatingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : <PenTool className="h-4 w-4" />}
               Generate Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(editingOutlineSectionId)} onOpenChange={(open) => { if (!open) closeOutlineEditor(); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit outline section</DialogTitle>
+            <DialogDescription>
+              Update the approved structure before drafting or exporting. Mapped requirements and source refs should remain comma-separated.
+            </DialogDescription>
+          </DialogHeader>
+          {outlineEdits ? (
+            <div className="grid gap-4 py-2 md:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Section Number</p>
+                <Input
+                  value={outlineEdits.section_number}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, section_number: event.target.value } : prev)
+                  }
+                  placeholder="1.0"
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Title</p>
+                <Input
+                  value={outlineEdits.title}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, title: event.target.value } : prev)
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Volume</p>
+                <Input
+                  value={outlineEdits.volume}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, volume: event.target.value } : prev)
+                  }
+                  placeholder="Technical Volume"
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={outlineEdits.status}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, status: event.target.value } : prev)
+                  }
+                >
+                  <option value="planned">Planned</option>
+                  <option value="approved">Approved</option>
+                  <option value="ai_drafted">AI drafted</option>
+                  <option value="in_review">In review</option>
+                  <option value="needs_revision">Needs revision</option>
+                  <option value="approved_for_export">Approved for export</option>
+                  <option value="blocked">Blocked</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Target Words</p>
+                <Input
+                  type="number"
+                  min="0"
+                  value={outlineEdits.target_word_count}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, target_word_count: event.target.value } : prev)
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Page Limit</p>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={outlineEdits.page_limit}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, page_limit: event.target.value } : prev)
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Evaluation Weight</p>
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={outlineEdits.evaluation_weight}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, evaluation_weight: event.target.value as ProposalOutlineEditForm["evaluation_weight"] } : prev)
+                  }
+                >
+                  <option value="">None</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Type</p>
+                <Input
+                  value={outlineEdits.section_type}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, section_type: event.target.value } : prev)
+                  }
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Instructions</p>
+                <textarea
+                  className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={outlineEdits.instructions}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, instructions: event.target.value } : prev)
+                  }
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mapped Requirements</p>
+                <Input
+                  value={outlineEdits.mapped_requirement_ids}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, mapped_requirement_ids: event.target.value } : prev)
+                  }
+                  placeholder="REQ-001, REQ-002"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Source References</p>
+                <Input
+                  value={outlineEdits.source_refs}
+                  onChange={(event) =>
+                    setOutlineEdits((prev) => prev ? { ...prev, source_refs: event.target.value } : prev)
+                  }
+                  placeholder="Section L.5, Section M.2"
+                />
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeOutlineEditor}>Cancel</Button>
+            <Button onClick={saveOutlineSection} disabled={!outlineEdits?.title.trim() || Boolean(savingOutlineId)} className="gap-2">
+              {savingOutlineId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save Outline Section
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -761,6 +1200,9 @@ export default function ProposalDetailPage() {
               <DropdownMenuItem onClick={() => exportProposal("annotated")}>
                 Export Annotated Docx
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportProposal("review_package")}>
+                Export Review Package
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -768,11 +1210,45 @@ export default function ProposalDetailPage() {
 
       <PipelineStepper stages={pipelineStages} />
 
+      {exportReadiness ? (
+        <Card>
+          <CardContent className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-semibold">Export readiness</p>
+              <p className="text-xs text-muted-foreground">
+                {exportReadiness.ready
+                  ? "No open blockers detected for the review package."
+                  : "Resolve placeholders, weak findings, pending reviews, and unmapped requirements before final export."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={exportReadiness.placeholders === 0 ? "secondary" : "outline"}>
+                {exportReadiness.placeholders} placeholders
+              </Badge>
+              <Badge variant={exportReadiness.weakFindings === 0 ? "secondary" : "outline"}>
+                {exportReadiness.weakFindings} weak findings
+              </Badge>
+              <Badge variant={exportReadiness.pendingSections === 0 ? "secondary" : "outline"}>
+                {exportReadiness.pendingSections} pending reviews
+              </Badge>
+              <Badge variant={exportReadiness.unmappedRequirements === 0 ? "secondary" : "outline"}>
+                {exportReadiness.unmappedRequirements} unmapped reqs
+              </Badge>
+              <Badge variant={exportReadiness.openActionItems === 0 ? "secondary" : "outline"}>
+                {exportReadiness.openActionItems} open actions
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Tabs defaultValue="analysis" className="space-y-4">
         <TabsList>
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
+          <TabsTrigger value="outline">Outline</TabsTrigger>
           <TabsTrigger value="draft">Draft</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
+          <TabsTrigger value="execution">Execution</TabsTrigger>
           <TabsTrigger value="competitive-intel">Competitive Intel</TabsTrigger>
         </TabsList>
 
@@ -913,6 +1389,131 @@ export default function ProposalDetailPage() {
                         {entry.evaluation_text}
                       </p>
                     ) : null}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+
+
+        <TabsContent value="outline" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-sm">Annotated Proposal Outline</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Generate a solicitation-driven outline before drafting so sections
+                  inherit source refs, instructions, requirement mappings, and review
+                  metadata.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => generateProposalOutline(proposal.outline_sections.length > 0)}
+                disabled={generatingOutline || proposal.requirements.length === 0}
+                title={proposal.requirements.length === 0 ? "Run analysis before generating an outline" : undefined}
+              >
+                {generatingOutline ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileSearch className="h-3.5 w-3.5" />
+                )}
+                {proposal.outline_sections.length > 0 ? "Regenerate" : "Generate Outline"}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {proposal.outline_sections.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No outline has been generated yet. Generate an outline to convert
+                    extracted requirements and compliance matrix rows into draft-ready
+                    sections.
+                  </p>
+                </div>
+              ) : (
+                proposal.outline_sections.map((section) => (
+                  <div key={section.id} className="rounded-lg border p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {section.section_number ? (
+                            <Badge variant="outline" className="font-mono">
+                              {section.section_number}
+                            </Badge>
+                          ) : null}
+                          <h3 className="text-sm font-semibold">{section.title}</h3>
+                          <Badge variant="secondary" className="capitalize">
+                            {section.section_type.replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        {section.volume ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {section.volume}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {section.evaluation_weight ? (
+                          <Badge variant="outline">{section.evaluation_weight} weight</Badge>
+                        ) : null}
+                        {section.target_word_count ? (
+                          <Badge variant="outline">{section.target_word_count} words</Badge>
+                        ) : null}
+                        <Badge variant="secondary">{section.status.replace(/_/g, " ")}</Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openOutlineEditor(section)}
+                        >
+                          Edit
+                        </Button>
+                      </div>
+                    </div>
+
+                    {section.instructions ? (
+                      <p className="mt-3 whitespace-pre-line text-sm leading-relaxed">
+                        {section.instructions}
+                      </p>
+                    ) : null}
+
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Mapped Requirements
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(section.mapped_requirement_ids || []).length > 0 ? (
+                            section.mapped_requirement_ids?.map((id) => (
+                              <Badge key={id} variant="outline" className="font-mono text-xs">
+                                {id}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No mappings</span>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Source References
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(section.source_refs || []).length > 0 ? (
+                            section.source_refs?.map((ref) => (
+                              <Badge key={ref} variant="secondary" className="text-xs">
+                                {ref}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No source refs</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ))
               )}
@@ -1296,6 +1897,93 @@ export default function ProposalDetailPage() {
                           {finding.suggestion}
                         </p>
                       ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="execution" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-sm">Proposal Execution Board</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Sync placeholders, compliance gaps, low-confidence sections, and pending reviews into trackable work.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={syncActionItems}
+                disabled={syncingActionItems || proposal.proposal_sections.length === 0}
+              >
+                {syncingActionItems ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Target className="h-3.5 w-3.5" />}
+                Sync Action Items
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {proposal.proposal_action_items.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No action items yet. Sync after drafting or running compliance to generate work items.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-4 xl:grid-cols-5">
+                  {actionItemsByStatus.map(({ status, items }) => (
+                    <div key={status} className="space-y-3 rounded-xl border bg-muted/20 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold capitalize">{status.replace(/_/g, " ")}</p>
+                        <Badge variant="secondary">{items.length}</Badge>
+                      </div>
+                      {items.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">No items</p>
+                      ) : (
+                        items.map((item) => (
+                          <div key={item.id} className="space-y-3 rounded-lg border bg-card p-3 shadow-sm">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap gap-1.5">
+                                <Badge variant="outline" className="capitalize">{item.severity}</Badge>
+                                <Badge variant="secondary" className="capitalize">{item.source.replace(/_/g, " ")}</Badge>
+                                {item.requirement_id ? <Badge variant="outline" className="font-mono">{item.requirement_id}</Badge> : null}
+                              </div>
+                              <p className="text-sm font-medium leading-snug">{item.title}</p>
+                              {item.description ? (
+                                <p className="line-clamp-4 whitespace-pre-line text-xs text-muted-foreground">{item.description}</p>
+                              ) : null}
+                            </div>
+                            <div className="space-y-2">
+                              <select
+                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                value={item.status}
+                                disabled={updatingActionItemId === item.id}
+                                onChange={(event) => updateActionItem(item.id, { status: event.target.value as ProposalActionItem["status"] })}
+                              >
+                                <option value="open">Open</option>
+                                <option value="in_progress">In progress</option>
+                                <option value="blocked">Blocked</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="accepted_risk">Accepted risk</option>
+                              </select>
+                              <select
+                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                                value={item.severity}
+                                disabled={updatingActionItemId === item.id}
+                                onChange={(event) => updateActionItem(item.id, { severity: event.target.value as ProposalActionItem["severity"] })}
+                              >
+                                <option value="critical">Critical</option>
+                                <option value="high">High</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low</option>
+                              </select>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   ))}
                 </div>

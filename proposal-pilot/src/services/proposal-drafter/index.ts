@@ -8,6 +8,7 @@
 import { callAgentAPI } from "@/lib/ai/gemini";
 import { createClient } from "@/lib/supabase/server";
 import { searchEvidence } from "@/services/knowledge-base";
+import { generateOutline, getOutlineSections } from "@/services/proposal-outline";
 
 // ---- Output Types ----
 
@@ -20,6 +21,7 @@ export interface ProposalDraftResult {
 
 export interface ProposalSection {
   id: string;
+  outline_section_id?: string | null;
   title: string;
   content: string;
   requirement_mappings: string[];
@@ -43,7 +45,20 @@ interface ExistingSectionSnapshot {
   requirement_mappings?: string[] | null;
   placeholders?: string[] | null;
   confidence?: "high" | "medium" | "low" | null;
+  outline_section_id?: string | null;
   section_order: number;
+}
+
+interface DraftSectionDefinition {
+  key: string;
+  title: string;
+  outlineSectionId?: string | null;
+  sectionNumber?: string | null;
+  volume?: string | null;
+  instructions?: string | null;
+  sourceRefs?: string[];
+  targetWordCount?: number | null;
+  mappedRequirementIds?: string[];
 }
 
 // ---- Service Functions ----
@@ -73,7 +88,7 @@ export async function generateDraft(
   const { data: existingSections } = await supabase
     .from("proposal_sections")
     .select(
-      "id, title, content, review_status, requirement_mappings, placeholders, confidence, section_order"
+      "id, title, content, review_status, requirement_mappings, placeholders, confidence, outline_section_id, section_order"
     )
     .eq("proposal_draft_id", proposalId)
     .eq("workspace_id", workspaceId)
@@ -95,25 +110,57 @@ export async function generateDraft(
     .select("*")
     .eq("solicitation_id", draft.solicitation_id);
 
-  // 4. Retrieve relevant evidence from knowledge base
+  // 4. Build or load a solicitation-driven outline. Fallback sections keep older
+  // proposals draftable if an outline has not been generated yet.
+  let outlineSections = await getOutlineSections(proposalId, workspaceId);
+  if (outlineSections.length === 0) {
+    outlineSections = await generateOutline(proposalId, workspaceId);
+  }
+
+  const sectionDefs: DraftSectionDefinition[] = outlineSections.length > 0
+    ? outlineSections.map((section) => ({
+        key: section.section_type,
+        title: section.title,
+        outlineSectionId: section.id,
+        sectionNumber: section.section_number,
+        volume: section.volume,
+        instructions: section.instructions,
+        sourceRefs: section.source_refs,
+        targetWordCount: section.target_word_count,
+        mappedRequirementIds: section.mapped_requirement_ids,
+      }))
+    : [
+        { key: "executive_summary", title: "Executive Summary" },
+        { key: "technical", title: "Technical Approach" },
+        { key: "management", title: "Management Approach" },
+        { key: "past_performance", title: "Past Performance" },
+      ];
+
+  // 5. Retrieve relevant evidence from knowledge base for each planned section.
   const evidenceBySection: Record<string, Awaited<ReturnType<typeof searchEvidence>>> = {};
 
-  const sectionTypes = ["technical", "management", "past_performance"] as const;
-  for (const sectionType of sectionTypes) {
-    const sectionReqs = requirements.filter((r) => r.category === sectionType);
+  for (const sectionDef of sectionDefs) {
+    const mappedIds = sectionDef.mappedRequirementIds || [];
+    const sectionReqs = requirements.filter(
+      (r) =>
+        mappedIds.includes(r.requirement_id) ||
+        r.category === sectionDef.key ||
+        sectionDef.key === "executive_summary"
+    );
+
     if (sectionReqs.length > 0) {
-      const query = sectionReqs.map((r) => r.text).join(" ");
-      evidenceBySection[sectionType] = await searchEvidence(query, workspaceId, 10);
+      const query = [
+        sectionDef.title,
+        sectionDef.instructions || "",
+        sectionReqs.map((r) => r.text).join(" "),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      evidenceBySection[sectionDef.title] = await searchEvidence(query, workspaceId, 10);
     }
   }
 
-  // 5. Generate sections via Perplexity Agent API (Claude Opus for highest quality)
-  const sectionDefs = [
-    { key: "executive_summary", title: "Executive Summary" },
-    { key: "technical", title: "Technical Approach" },
-    { key: "management", title: "Management Approach" },
-    { key: "past_performance", title: "Past Performance" },
-  ];
+  // 6. Generate sections via Perplexity Agent API (Claude Opus for highest quality)
 
   const sections: ProposalSection[] = [];
   const unresolvedRequirements: string[] = [];
@@ -121,11 +168,12 @@ export async function generateDraft(
   for (const sectionDef of sectionDefs) {
     const sectionReqs = requirements.filter(
       (r) =>
+        (sectionDef.mappedRequirementIds || []).includes(r.requirement_id) ||
         r.category === sectionDef.key ||
-        (sectionDef.key === "executive_summary")
+        sectionDef.key === "executive_summary"
     );
 
-    const evidence = evidenceBySection[sectionDef.key] || [];
+    const evidence = evidenceBySection[sectionDef.title] || [];
     const evidenceContext = evidence
       .map(
         (e) =>
@@ -139,6 +187,11 @@ export async function generateDraft(
 
 SOLICITATION: ${draft.solicitations?.title || "Unknown"}
 AGENCY: ${draft.solicitations?.agency || "Unknown"}
+${sectionDef.sectionNumber ? `OUTLINE SECTION: ${sectionDef.sectionNumber}` : ""}
+${sectionDef.volume ? `VOLUME: ${sectionDef.volume}` : ""}
+${sectionDef.targetWordCount ? `TARGET WORD COUNT: ${sectionDef.targetWordCount}` : ""}
+${sectionDef.sourceRefs?.length ? `SOURCE REFERENCES: ${sectionDef.sourceRefs.join(", ")}` : ""}
+${sectionDef.instructions ? `SECTION INSTRUCTIONS: ${sectionDef.instructions}` : ""}
 
 REQUIREMENTS TO ADDRESS:
 ${sectionReqs.map((r) => `- ${r.requirement_id}: ${r.text}`).join("\n")}
@@ -167,7 +220,7 @@ Return JSON:
   "confidence": "high" | "medium" | "low"
 }`,
         instructions:
-          "Write in professional proposal language. Every factual claim must cite an evidence chunk. Mark gaps as [PLACEHOLDER: description]. Do not invent capabilities or past performance not in the evidence. Return ONLY valid JSON.",
+          "Write in professional proposal language and follow the approved outline metadata. Every factual claim must cite an evidence chunk. Mark gaps as [PLACEHOLDER: description]. Do not invent capabilities or past performance not in the evidence. Return ONLY valid JSON.",
         model: "anthropic/claude-opus-4-6",
       },
       { workspaceId, operationType: "drafting" }
@@ -201,7 +254,8 @@ Return JSON:
     const wordCount = sectionData.content.split(/\s+/).length;
 
     sections.push({
-      id: `section_${sectionDef.key}`,
+      id: `section_${sectionDef.key}_${sections.length + 1}`,
+      outline_section_id: sectionDef.outlineSectionId || null,
       title: sectionDef.title,
       content: sectionData.content,
       requirement_mappings: sectionData.requirement_mappings,
@@ -245,6 +299,7 @@ Return JSON:
             requirement_mappings: section.requirement_mappings || [],
             placeholders: section.placeholders || [],
             confidence: section.confidence || null,
+            outline_section_id: section.outline_section_id || null,
             reason: "draft_regenerated",
           },
         }))
@@ -279,11 +334,20 @@ Return JSON:
     entity_id: proposalId,
     metadata: {
       version: nextVersion,
+      outline_driven: outlineSections.length > 0,
       sections_created: sections.length,
       total_word_count: totalWordCount,
       unresolved_requirements: unresolvedRequirements,
     },
   });
+
+  if (outlineSections.length > 0) {
+    await supabase
+      .from("proposal_outline_sections")
+      .update({ status: "ai_drafted" })
+      .eq("proposal_draft_id", proposalId)
+      .eq("workspace_id", workspaceId);
+  }
 
   // Save sections
   for (let i = 0; i < sections.length; i++) {
@@ -295,6 +359,7 @@ Return JSON:
         workspace_id: workspaceId,
         title: section.title,
         content: section.content,
+        outline_section_id: section.outline_section_id || null,
         section_order: i + 1,
         requirement_mappings: section.requirement_mappings,
         placeholders: section.placeholders,
@@ -330,9 +395,11 @@ Return JSON:
         metadata: {
           version: nextVersion,
           section_order: i + 1,
+          outline_section_id: section.outline_section_id || null,
           requirement_mappings: section.requirement_mappings,
           placeholders: section.placeholders,
           confidence: section.confidence,
+          outline_driven: outlineSections.length > 0,
           citations: section.citations.map((citation) => ({
             evidence_id: citation.evidence_id,
             source_document: citation.source_document,
