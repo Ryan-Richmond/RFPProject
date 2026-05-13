@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AnimatedNumber } from "@/components/ui/animated-number";
+import { Sparkline } from "@/components/ui/sparkline";
 import { PipelineStepper, type StageStatus } from "@/components/features/pipeline-stepper";
 import {
   getWorkflowStatus,
@@ -248,6 +249,23 @@ export default function WorkspacePage() {
     [documents, proposals]
   );
 
+  // Per-day operation counts for the last 7 days (oldest → newest).
+  const opSeriesWeek = useMemo(() => {
+    const buckets = new Array(7).fill(0);
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (const op of operations?.operations || []) {
+      const ts = new Date(op.created_at).getTime();
+      const ageDays = Math.floor((now - ts) / dayMs);
+      if (ageDays >= 0 && ageDays < 7) {
+        buckets[6 - ageDays] += 1;
+      }
+    }
+    return buckets;
+  }, [operations]);
+
+  const opSeriesTotal = opSeriesWeek.reduce((sum, n) => sum + n, 0);
+
   const activeProposal = useMemo(() => {
     const prioritizedStatuses = ["analysis_ready", "draft_ready", "in_review"];
 
@@ -391,6 +409,32 @@ export default function WorkspacePage() {
           </Card>
         </Link>
       </div>
+
+      {/* AI activity sparkline */}
+      {opSeriesTotal > 0 && (
+        <Card className="card-lift">
+          <CardContent className="flex items-center justify-between gap-6 pt-6">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                AI activity — last 7 days
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums">
+                <AnimatedNumber value={opSeriesTotal} />
+                <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                  operation{opSeriesTotal === 1 ? "" : "s"}
+                </span>
+              </p>
+            </div>
+            <Sparkline
+              values={opSeriesWeek}
+              width={200}
+              height={48}
+              color="var(--primary)"
+              showMarkers
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-4">
         {[

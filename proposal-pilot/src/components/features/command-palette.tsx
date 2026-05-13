@@ -63,20 +63,120 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Cmd+K / Ctrl+K to toggle
+  // Cmd+K / Ctrl+K to toggle, plus G-letter chord shortcuts (g o, g p, ...)
   useEffect(() => {
+    // Chord state: after pressing "g" alone (not in an input), we wait ~1.2s
+    // for the next key to navigate.
+    let gPendingUntil = 0;
+    let gToastEl: HTMLDivElement | null = null;
+    const CHORD_WINDOW_MS = 1200;
+
+    const chordMap: Record<string, string> = {
+      w: "/workspace",
+      o: "/opportunities",
+      k: "/knowledge-base",
+      r: "/proposals",
+      d: "/drafting",
+      c: "/compliance",
+      p: "/profile",
+      t: "/team",
+    };
+
+    function clearGToast() {
+      if (gToastEl) {
+        gToastEl.remove();
+        gToastEl = null;
+      }
+    }
+
+    function showGToast() {
+      clearGToast();
+      const el = document.createElement("div");
+      el.setAttribute("aria-hidden", "true");
+      el.style.cssText = `
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--popover);
+        color: var(--popover-foreground);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 12px;
+        font-family: var(--font-sans);
+        box-shadow: 0 12px 32px -16px oklch(0 0 0 / 30%);
+        z-index: 9998;
+        opacity: 0;
+        transition: opacity 120ms ease-out;
+      `;
+      el.innerHTML = `Press <kbd class="kbd">O</kbd>, <kbd class="kbd">K</kbd>, <kbd class="kbd">P</kbd>… to navigate`;
+      document.body.appendChild(el);
+      requestAnimationFrame(() => (el.style.opacity = "1"));
+      gToastEl = el;
+    }
+
+    function isTypingTarget(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (target.isContentEditable) return true;
+      return false;
+    }
+
     function handler(e: KeyboardEvent) {
       const isModK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
       if (isModK) {
         e.preventDefault();
+        gPendingUntil = 0;
+        clearGToast();
         setOpen((prev) => !prev);
-      } else if (e.key === "Escape" && open) {
+        return;
+      }
+
+      if (e.key === "Escape" && open) {
         setOpen(false);
+        return;
+      }
+
+      // Don't intercept typing in inputs.
+      if (isTypingTarget(e.target)) return;
+      // Don't intercept while the palette or any dialog is open.
+      if (open) return;
+      // Modifier-bearing keystrokes are reserved for OS / browser.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const key = e.key.toLowerCase();
+
+      // Inside the chord window — try to resolve the second key.
+      if (gPendingUntil > Date.now()) {
+        gPendingUntil = 0;
+        clearGToast();
+        const dest = chordMap[key];
+        if (dest) {
+          e.preventDefault();
+          router.push(dest);
+        }
+        return;
+      }
+
+      // Start a chord — only "g" pressed alone.
+      if (key === "g") {
+        e.preventDefault();
+        gPendingUntil = Date.now() + CHORD_WINDOW_MS;
+        showGToast();
+        window.setTimeout(() => {
+          if (gPendingUntil <= Date.now()) clearGToast();
+        }, CHORD_WINDOW_MS + 50);
       }
     }
+
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open]);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      clearGToast();
+    };
+  }, [open, router]);
 
   // Load workspaces on first open
   useEffect(() => {
