@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import {
   Shield,
   Sparkles,
   Target,
+  Upload,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -300,6 +301,8 @@ export default function ProposalDetailPage() {
   );
   const [savingOutcome, setSavingOutcome] = useState(false);
   const [draftWarning, setDraftWarning] = useState<string | null>(null);
+  const [uploadingRfp, setUploadingRfp] = useState(false);
+  const rfpFileInputRef = useRef<HTMLInputElement | null>(null);
   const [outcomeForm, setOutcomeForm] = useState({
     outcome: "pending" as "won" | "lost" | "pending" | "no_bid",
     contractValue: "",
@@ -425,6 +428,47 @@ export default function ProposalDetailPage() {
       ).length,
     };
   }, [proposal]);
+
+  async function attachRfpFile(file: File) {
+    if (!proposal) return;
+    setUploadingRfp(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("documentType", "rfp");
+
+      const uploadResponse = await fetch("/api/documents", {
+        method: "POST",
+        body: formData,
+      });
+      if (!uploadResponse.ok) {
+        const error = await uploadResponse.json().catch(() => ({}));
+        throw new Error(error.error || "Upload failed");
+      }
+      const { document } = await uploadResponse.json();
+
+      const attachResponse = await fetch(
+        `/api/solicitations/${proposal.solicitations.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceDocumentId: document.id }),
+        }
+      );
+      if (!attachResponse.ok) {
+        const error = await attachResponse.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to attach RFP");
+      }
+
+      toast.success("Solicitation attached. Running analysis…");
+      await fetchProposal();
+      await runAnalysis();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Attach failed");
+    } finally {
+      setUploadingRfp(false);
+    }
+  }
 
   async function runAnalysis() {
     if (!proposal) return;
@@ -747,7 +791,7 @@ export default function ProposalDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            variant="outline"
+            variant={proposal.requirements.length === 0 ? "default" : "outline"}
             className="gap-2"
             onClick={runAnalysis}
             disabled={runningAnalysis}
@@ -757,35 +801,38 @@ export default function ProposalDetailPage() {
             ) : (
               <FileSearch className="h-4 w-4" />
             )}
-            Analyze
+            {proposal.requirements.length === 0 ? "Analyze RFP" : "Re-analyze"}
           </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={startDraftFlow}
-            disabled={generatingDraft || proposal.requirements.length === 0}
-            title={proposal.requirements.length === 0 ? "Run the analyzer first to extract requirements" : undefined}
-          >
-            {generatingDraft ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <PenTool className="h-4 w-4" />
-            )}
-            Generate Draft
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={runComplianceCheck}
-            disabled={runningCompliance || proposal.proposal_sections.length === 0}
-          >
-            {runningCompliance ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Shield className="h-4 w-4" />
-            )}
-            Run Compliance
-          </Button>
+          {proposal.requirements.length > 0 ? (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={startDraftFlow}
+              disabled={generatingDraft}
+            >
+              {generatingDraft ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <PenTool className="h-4 w-4" />
+              )}
+              Generate Draft
+            </Button>
+          ) : null}
+          {proposal.proposal_sections.length > 0 ? (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={runComplianceCheck}
+              disabled={runningCompliance}
+            >
+              {runningCompliance ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Shield className="h-4 w-4" />
+              )}
+              Run Compliance
+            </Button>
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger
               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -822,6 +869,73 @@ export default function ProposalDetailPage() {
         </TabsList>
 
         <TabsContent value="analysis" className="space-y-4">
+          {proposal.requirements.length === 0 ? (
+            <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.06] via-background to-violet/[0.04]">
+              <CardContent className="flex flex-col items-center justify-center gap-4 py-10 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+                  <FileSearch className="h-7 w-7 text-primary" />
+                </div>
+                <div className="max-w-xl space-y-1.5">
+                  <h2 className="text-lg font-semibold">
+                    Analyze this RFP to extract requirements
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {proposal.solicitations.source_documents
+                      ? "We'll parse the uploaded solicitation, extract every requirement, build the compliance matrix, and surface ambiguities to flag."
+                      : "We'll pull the full notice and every attachment from SAM.gov, parse them, then extract requirements, build the compliance matrix, and surface ambiguities. Or upload the solicitation PDF directly for the strongest analysis."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button
+                    size="lg"
+                    className="gap-2"
+                    onClick={runAnalysis}
+                    disabled={runningAnalysis || uploadingRfp}
+                  >
+                    {runningAnalysis ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    {proposal.solicitations.source_documents
+                      ? "Analyze RFP"
+                      : "Fetch & Analyze from SAM.gov"}
+                  </Button>
+                  <input
+                    ref={rfpFileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.docx,.txt"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (file) attachRfpFile(file);
+                    }}
+                  />
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="gap-2"
+                    disabled={uploadingRfp || runningAnalysis}
+                    onClick={() => rfpFileInputRef.current?.click()}
+                  >
+                    {uploadingRfp ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    {proposal.solicitations.source_documents
+                      ? "Replace document"
+                      : "Upload solicitation PDF"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground/80">
+                  PDF, DOCX, or TXT · up to 50MB
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
             <Card>
               <CardHeader>
