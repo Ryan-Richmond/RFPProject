@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ import {
   Shield,
   Sparkles,
   Target,
+  Upload,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -94,6 +95,22 @@ interface ComplianceFinding {
   suggestion?: string | null;
 }
 
+interface ProposalOutlineSection {
+  id: string;
+  section_number?: string | null;
+  title: string;
+  volume?: string | null;
+  section_type: string;
+  section_order: number;
+  page_limit?: number | null;
+  target_word_count?: number | null;
+  evaluation_weight?: "high" | "medium" | "low" | null;
+  instructions?: string | null;
+  source_refs?: string[] | null;
+  mapped_requirement_ids?: string[] | null;
+  status: string;
+}
+
 interface ProposalOutcomeRecord {
   id: string;
   outcome: "won" | "lost" | "pending" | "no_bid";
@@ -118,6 +135,7 @@ interface ProposalDetail {
     evaluation_ref?: string | null;
     evaluation_text?: string | null;
   }>;
+  outline_sections: ProposalOutlineSection[];
   solicitations: {
     id: string;
     title: string;
@@ -273,6 +291,7 @@ export default function ProposalDetailPage() {
   const [runningAnalysis, setRunningAnalysis] = useState(false);
   const [generatingDraft, setGeneratingDraft] = useState(false);
   const [runningCompliance, setRunningCompliance] = useState(false);
+  const [generatingOutline, setGeneratingOutline] = useState(false);
   const [estimatingWin, setEstimatingWin] = useState(false);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
@@ -282,6 +301,8 @@ export default function ProposalDetailPage() {
   );
   const [savingOutcome, setSavingOutcome] = useState(false);
   const [draftWarning, setDraftWarning] = useState<string | null>(null);
+  const [uploadingRfp, setUploadingRfp] = useState(false);
+  const rfpFileInputRef = useRef<HTMLInputElement | null>(null);
   const [outcomeForm, setOutcomeForm] = useState({
     outcome: "pending" as "won" | "lost" | "pending" | "no_bid",
     contractValue: "",
@@ -408,6 +429,47 @@ export default function ProposalDetailPage() {
     };
   }, [proposal]);
 
+  async function attachRfpFile(file: File) {
+    if (!proposal) return;
+    setUploadingRfp(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("documentType", "rfp");
+
+      const uploadResponse = await fetch("/api/documents", {
+        method: "POST",
+        body: formData,
+      });
+      if (!uploadResponse.ok) {
+        const error = await uploadResponse.json().catch(() => ({}));
+        throw new Error(error.error || "Upload failed");
+      }
+      const { document } = await uploadResponse.json();
+
+      const attachResponse = await fetch(
+        `/api/solicitations/${proposal.solicitations.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceDocumentId: document.id }),
+        }
+      );
+      if (!attachResponse.ok) {
+        const error = await attachResponse.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to attach RFP");
+      }
+
+      toast.success("Solicitation attached. Running analysis…");
+      await fetchProposal();
+      await runAnalysis();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Attach failed");
+    } finally {
+      setUploadingRfp(false);
+    }
+  }
+
   async function runAnalysis() {
     if (!proposal) return;
 
@@ -431,6 +493,34 @@ export default function ProposalDetailPage() {
       toast.error(error instanceof Error ? error.message : "Analysis failed");
     } finally {
       setRunningAnalysis(false);
+    }
+  }
+
+
+  async function generateProposalOutline(regenerate = false) {
+    if (!proposal) return;
+
+    setGeneratingOutline(true);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/outline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regenerate }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Outline generation failed");
+      }
+
+      await fetchProposal();
+      toast.success(regenerate ? "Outline regenerated." : "Outline generated.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Outline generation failed"
+      );
+    } finally {
+      setGeneratingOutline(false);
     }
   }
 
@@ -472,10 +562,6 @@ export default function ProposalDetailPage() {
     } finally {
       setGeneratingDraft(false);
     }
-  }
-
-  async function runDraft() {
-    return startDraftFlow();
   }
 
   async function runComplianceCheck() {
@@ -705,7 +791,7 @@ export default function ProposalDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
-            variant="outline"
+            variant={proposal.requirements.length === 0 ? "default" : "outline"}
             className="gap-2"
             onClick={runAnalysis}
             disabled={runningAnalysis}
@@ -715,35 +801,38 @@ export default function ProposalDetailPage() {
             ) : (
               <FileSearch className="h-4 w-4" />
             )}
-            Analyze
+            {proposal.requirements.length === 0 ? "Analyze RFP" : "Re-analyze"}
           </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={startDraftFlow}
-            disabled={generatingDraft || proposal.requirements.length === 0}
-            title={proposal.requirements.length === 0 ? "Run the analyzer first to extract requirements" : undefined}
-          >
-            {generatingDraft ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <PenTool className="h-4 w-4" />
-            )}
-            Generate Draft
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={runComplianceCheck}
-            disabled={runningCompliance || proposal.proposal_sections.length === 0}
-          >
-            {runningCompliance ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Shield className="h-4 w-4" />
-            )}
-            Run Compliance
-          </Button>
+          {proposal.requirements.length > 0 ? (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={startDraftFlow}
+              disabled={generatingDraft}
+            >
+              {generatingDraft ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <PenTool className="h-4 w-4" />
+              )}
+              Generate Draft
+            </Button>
+          ) : null}
+          {proposal.proposal_sections.length > 0 ? (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={runComplianceCheck}
+              disabled={runningCompliance}
+            >
+              {runningCompliance ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Shield className="h-4 w-4" />
+              )}
+              Run Compliance
+            </Button>
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger
               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -773,12 +862,80 @@ export default function ProposalDetailPage() {
       <Tabs defaultValue="analysis" className="space-y-4">
         <TabsList>
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
+          <TabsTrigger value="outline">Outline</TabsTrigger>
           <TabsTrigger value="draft">Draft</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
           <TabsTrigger value="competitive-intel">Competitive Intel</TabsTrigger>
         </TabsList>
 
         <TabsContent value="analysis" className="space-y-4">
+          {proposal.requirements.length === 0 ? (
+            <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.06] via-background to-violet/[0.04]">
+              <CardContent className="flex flex-col items-center justify-center gap-4 py-10 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+                  <FileSearch className="h-7 w-7 text-primary" />
+                </div>
+                <div className="max-w-xl space-y-1.5">
+                  <h2 className="text-lg font-semibold">
+                    Analyze this RFP to extract requirements
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {proposal.solicitations.source_documents
+                      ? "We'll parse the uploaded solicitation, extract every requirement, build the compliance matrix, and surface ambiguities to flag."
+                      : "We'll pull the full notice and every attachment from SAM.gov, parse them, then extract requirements, build the compliance matrix, and surface ambiguities. Or upload the solicitation PDF directly for the strongest analysis."}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button
+                    size="lg"
+                    className="gap-2"
+                    onClick={runAnalysis}
+                    disabled={runningAnalysis || uploadingRfp}
+                  >
+                    {runningAnalysis ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    {proposal.solicitations.source_documents
+                      ? "Analyze RFP"
+                      : "Fetch & Analyze from SAM.gov"}
+                  </Button>
+                  <input
+                    ref={rfpFileInputRef}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.docx,.txt"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (file) attachRfpFile(file);
+                    }}
+                  />
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="gap-2"
+                    disabled={uploadingRfp || runningAnalysis}
+                    onClick={() => rfpFileInputRef.current?.click()}
+                  >
+                    {uploadingRfp ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    {proposal.solicitations.source_documents
+                      ? "Replace document"
+                      : "Upload solicitation PDF"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground/80">
+                  PDF, DOCX, or TXT · up to 50MB
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
             <Card>
               <CardHeader>
@@ -915,6 +1072,124 @@ export default function ProposalDetailPage() {
                         {entry.evaluation_text}
                       </p>
                     ) : null}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+
+
+        <TabsContent value="outline" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-sm">Annotated Proposal Outline</CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Generate a solicitation-driven outline before drafting so sections
+                  inherit source refs, instructions, requirement mappings, and review
+                  metadata.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => generateProposalOutline(proposal.outline_sections.length > 0)}
+                disabled={generatingOutline || proposal.requirements.length === 0}
+                title={proposal.requirements.length === 0 ? "Run analysis before generating an outline" : undefined}
+              >
+                {generatingOutline ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileSearch className="h-3.5 w-3.5" />
+                )}
+                {proposal.outline_sections.length > 0 ? "Regenerate" : "Generate Outline"}
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {proposal.outline_sections.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-6 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    No outline has been generated yet. Generate an outline to convert
+                    extracted requirements and compliance matrix rows into draft-ready
+                    sections.
+                  </p>
+                </div>
+              ) : (
+                proposal.outline_sections.map((section) => (
+                  <div key={section.id} className="rounded-lg border p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {section.section_number ? (
+                            <Badge variant="outline" className="font-mono">
+                              {section.section_number}
+                            </Badge>
+                          ) : null}
+                          <h3 className="text-sm font-semibold">{section.title}</h3>
+                          <Badge variant="secondary" className="capitalize">
+                            {section.section_type.replace(/_/g, " ")}
+                          </Badge>
+                        </div>
+                        {section.volume ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {section.volume}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {section.evaluation_weight ? (
+                          <Badge variant="outline">{section.evaluation_weight} weight</Badge>
+                        ) : null}
+                        {section.target_word_count ? (
+                          <Badge variant="outline">{section.target_word_count} words</Badge>
+                        ) : null}
+                        <Badge variant="secondary">{section.status.replace(/_/g, " ")}</Badge>
+                      </div>
+                    </div>
+
+                    {section.instructions ? (
+                      <p className="mt-3 whitespace-pre-line text-sm leading-relaxed">
+                        {section.instructions}
+                      </p>
+                    ) : null}
+
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Mapped Requirements
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(section.mapped_requirement_ids || []).length > 0 ? (
+                            section.mapped_requirement_ids?.map((id) => (
+                              <Badge key={id} variant="outline" className="font-mono text-xs">
+                                {id}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No mappings</span>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Source References
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {(section.source_refs || []).length > 0 ? (
+                            section.source_refs?.map((ref) => (
+                              <Badge key={ref} variant="secondary" className="text-xs">
+                                {ref}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No source refs</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ))
               )}

@@ -12,6 +12,21 @@ export const runtime = "nodejs";
 
 type ExportMode = "annotated" | "clean";
 
+type ExportOutlineSection = {
+  title: string;
+  section_number?: string | null;
+  volume?: string | null;
+  section_type?: string | null;
+  section_order?: number | null;
+  page_limit?: number | null;
+  target_word_count?: number | null;
+  evaluation_weight?: string | null;
+  instructions?: string | null;
+  source_refs?: string[] | null;
+  mapped_requirement_ids?: string[] | null;
+  status?: string | null;
+};
+
 type ExportSection = {
   title: string;
   content: string;
@@ -78,7 +93,8 @@ export async function POST(
         `
         *,
         solicitations(*),
-        proposal_sections(*, citations(*))
+        proposal_sections(*, citations(*)),
+        proposal_outline_sections(*)
       `
       )
       .eq("id", id)
@@ -90,6 +106,9 @@ export async function POST(
     }
 
     const sections = ((proposal.proposal_sections || []) as ExportSection[]).sort(
+      (left, right) => (left.section_order || 0) - (right.section_order || 0)
+    );
+    const outlineSections = ((proposal.proposal_outline_sections || []) as ExportOutlineSection[]).sort(
       (left, right) => (left.section_order || 0) - (right.section_order || 0)
     );
 
@@ -124,6 +143,65 @@ export async function POST(
         spacing: { after: 240 },
       }),
     ];
+
+    if (mode === "annotated" && outlineSections.length > 0) {
+      children.push(
+        new Paragraph({
+          text: "Approved Annotated Outline",
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 240, after: 120 },
+        })
+      );
+
+      for (const outline of outlineSections) {
+        children.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: `${outline.section_number ? `${outline.section_number} ` : ""}${outline.title}`,
+                bold: true,
+              }),
+            ],
+            spacing: { after: 80 },
+          }),
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Type: ", bold: true }),
+              new TextRun(outline.section_type || "other"),
+              new TextRun({ text: "  |  Weight: ", bold: true }),
+              new TextRun(outline.evaluation_weight || "n/a"),
+              new TextRun({ text: "  |  Status: ", bold: true }),
+              new TextRun(outline.status || "planned"),
+            ],
+            spacing: { after: 80 },
+          })
+        );
+
+        if (outline.instructions) {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Instructions: ", bold: true }),
+                new TextRun(outline.instructions),
+              ],
+              spacing: { after: 80 },
+            })
+          );
+        }
+
+        if (outline.mapped_requirement_ids?.length) {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Mapped requirements: ", bold: true }),
+                new TextRun(outline.mapped_requirement_ids.join(", ")),
+              ],
+              spacing: { after: 120 },
+            })
+          );
+        }
+      }
+    }
 
     for (const section of sections) {
       const sectionContent =

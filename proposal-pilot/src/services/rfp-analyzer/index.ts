@@ -7,7 +7,103 @@
 
 import { callAgentAPI, callAgentAPIWithSearch } from "@/lib/ai/gemini";
 import { parseDocument } from "@/lib/documents/parser";
+import {
+  buildAnalyzerText,
+  fetchNoticeBundle,
+  isSamApiConfigured,
+} from "@/lib/sam-gov/client";
 import { createClient } from "@/lib/supabase/server";
+
+/**
+ * For a solicitation created via the discovery pipeline, find the matching
+ * `sam_opportunities` row and (if `SAM_API_KEY` is set) fetch the full
+ * description + attachments, persist them as a real `source_document`, and
+ * link it to the solicitation. Returns the extracted text on success.
+ */
+async function hydrateSourceFromSamGov(args: {
+  solicitationId: string;
+  workspaceId: string;
+  solicitationNumber: string | null;
+  title: string;
+}): Promise<{ text: string; sourceDocumentId: string } | null> {
+  if (!isSamApiConfigured()) return null;
+
+  const supabase = await createClient();
+
+  let samOpportunity: { id: string; notice_id: string | null } | null = null;
+
+  if (args.solicitationNumber) {
+    const { data } = await supabase
+      .from("sam_opportunities")
+      .select("id, notice_id")
+      .eq("solicitation_number", args.solicitationNumber)
+      .maybeSingle();
+    samOpportunity = data || null;
+  }
+
+  if (!samOpportunity && args.title) {
+    const { data } = await supabase
+      .from("sam_opportunities")
+      .select("id, notice_id")
+      .eq("title", args.title)
+      .maybeSingle();
+    samOpportunity = data || null;
+  }
+
+  if (!samOpportunity?.notice_id) return null;
+
+  const bundle = await fetchNoticeBundle(samOpportunity.notice_id);
+  const text = buildAnalyzerText(bundle);
+  if (!text.trim()) return null;
+
+  const filename = `sam-${samOpportunity.notice_id}.txt`;
+  const filePath = `${args.workspaceId}/rfp/sam-${samOpportunity.notice_id}-${Date.now()}.txt`;
+
+  const { error: storageError } = await supabase.storage
+    .from("documents")
+    .upload(filePath, new Blob([text], { type: "text/plain" }), {
+      contentType: "text/plain",
+      upsert: false,
+    });
+
+  if (storageError) {
+    console.warn("SAM source upload failed, proceeding without persisting:", storageError);
+  }
+
+  const totalPages = bundle.attachments.reduce(
+    (sum, attachment) => sum + (attachment.pageCount || 0),
+    0
+  );
+
+  const { data: sourceDoc, error: docError } = await supabase
+    .from("source_documents")
+    .insert({
+      workspace_id: args.workspaceId,
+      document_type: "rfp",
+      filename,
+      file_path: filePath,
+      file_size: Buffer.byteLength(text, "utf8"),
+      mime_type: "text/plain",
+      processing_status: "complete",
+      extracted_text: text,
+      page_count: totalPages || null,
+    })
+    .select("id")
+    .single();
+
+  if (docError || !sourceDoc) {
+    throw new Error(
+      `Failed to persist SAM.gov fetched source: ${docError?.message || "unknown error"}`
+    );
+  }
+
+  await supabase
+    .from("solicitations")
+    .update({ source_document_id: sourceDoc.id })
+    .eq("id", args.solicitationId);
+
+  return { text, sourceDocumentId: sourceDoc.id };
+}
 
 // ---- Output Types ----
 
@@ -131,8 +227,30 @@ export async function analyzeRFP(
     }
   }
 
+  // Discovery-sourced solicitations have no uploaded PDF. Fetch the full
+  // notice + attachments from SAM.gov before giving up.
   if (!rfpText) {
-    throw new Error("No extracted text available for this RFP. Please re-upload the document.");
+    try {
+      const hydrated = await hydrateSourceFromSamGov({
+        solicitationId,
+        workspaceId,
+        solicitationNumber: solicitation.solicitation_number,
+        title: solicitation.title,
+      });
+      if (hydrated) {
+        rfpText = hydrated.text;
+      }
+    } catch (error) {
+      console.error("SAM.gov hydration failed:", error);
+    }
+  }
+
+  if (!rfpText) {
+    throw new Error(
+      isSamApiConfigured()
+        ? "Could not fetch any solicitation content from SAM.gov for this notice. Upload the solicitation PDF to continue."
+        : "No extracted text available for this RFP. Upload the solicitation PDF, or set SAM_API_KEY to fetch automatically."
+    );
   }
 
   // Call Perplexity Agent API for comprehensive RFP analysis
