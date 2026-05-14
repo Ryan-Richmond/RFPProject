@@ -28,6 +28,9 @@ import {
   getScoreImprovementTip,
 } from "@/lib/opportunities/format";
 import { findNaicsByCode } from "@/lib/profile/naics-codes";
+import { AnimatedNumber } from "@/components/ui/animated-number";
+import { Skeleton } from "@/components/ui/skeleton";
+import { celebrateOnce } from "@/lib/celebrate";
 
 interface OpportunityDetail {
   id: string;
@@ -149,6 +152,7 @@ export default function OpportunityDetailPage() {
       const result = await res.json();
       if (result.enriched > 0) {
         toast.success("AI analysis complete. Refreshing details...");
+        celebrateOnce("first-ai-analysis", { particleCount: 70 });
       } else if (result.failed > 0) {
         toast.error("AI analysis failed for this opportunity. Check the logs.");
       } else {
@@ -181,8 +185,48 @@ export default function OpportunityDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-16">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="space-y-6">
+        <div>
+          <Skeleton className="h-4 w-32 mb-3" />
+          <Skeleton className="h-7 w-2/3 mb-2" />
+          <Skeleton className="h-4 w-1/3" />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Card key={i}>
+              <CardContent className="pt-6 space-y-2">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-5 w-24" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-12 gap-6">
+          <Card className="col-span-5">
+            <CardHeader>
+              <Skeleton className="h-4 w-32" />
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Skeleton className="h-10 w-24" />
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="space-y-1.5">
+                  <Skeleton className="h-3 w-32" />
+                  <Skeleton className="h-2 w-full" />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          <Card className="col-span-7">
+            <CardHeader>
+              <Skeleton className="h-4 w-24" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-11/12" />
+              <Skeleton className="h-3 w-10/12" />
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -214,20 +258,20 @@ export default function OpportunityDetailPage() {
     !/^https?:\/\//i.test(opportunity.description.trim());
 
   return (
-    <div className="space-y-6">
-      {/* Back button + Header */}
-      <div>
+    <div className="space-y-6 animate-content-rise">
+      {/* Back button + Sticky header */}
+      <div className="sticky top-0 -mx-6 -mt-6 z-30 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70 px-6 pt-4 pb-3 border-b">
         <Button
           variant="ghost"
           size="sm"
-          className="mb-3 gap-1"
+          className="mb-2 gap-1 -ml-2"
           onClick={() => router.push("/opportunities")}
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to Pipeline
         </Button>
 
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-bold tracking-tight">
               {opportunity.title}
@@ -375,9 +419,14 @@ export default function OpportunityDetailPage() {
             <Trophy className="h-5 w-5 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Score</p>
-              <p className="text-sm font-medium">
-                {score ? `${score.overall_score}/100` : "Not scored"}
-              </p>
+              {score ? (
+                <p className="text-sm font-medium tabular-nums">
+                  <AnimatedNumber value={score.overall_score} />
+                  <span className="text-muted-foreground">/100</span>
+                </p>
+              ) : (
+                <p className="text-sm font-medium">Not scored</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -407,10 +456,20 @@ export default function OpportunityDetailPage() {
             <CardContent className="space-y-4">
               {score ? (
                 <>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-3xl font-bold">
-                      {score.overall_score}
-                    </span>
+                  <div className="flex items-end justify-between mb-4">
+                    <div className="flex items-baseline gap-1">
+                      <AnimatedNumber
+                        value={score.overall_score}
+                        className={`text-5xl font-bold tabular-nums leading-none ${
+                          score.overall_score >= 75
+                            ? "text-gradient"
+                            : score.overall_score >= 50
+                              ? "text-warning"
+                              : "text-danger"
+                        }`}
+                      />
+                      <span className="text-base text-muted-foreground">/100</span>
+                    </div>
                     <Badge
                       className={`text-sm px-3 py-1 ${
                         score.overall_score >= 75

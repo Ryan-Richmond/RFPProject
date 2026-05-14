@@ -124,7 +124,17 @@ export default function DraftingPage() {
         throw new Error(error.error || "Draft generation failed");
       }
 
-      toast.success("Proposal draft generated.");
+      toast.success("Proposal draft generated.", {
+        duration: 8000,
+        action: {
+          label: "Open draft",
+          onClick: () => {
+            window.location.assign(`/proposals/${proposalId}`);
+          },
+        },
+      });
+      const { celebrateOnce } = await import("@/lib/celebrate");
+      celebrateOnce("first-draft-generated", { particleCount: 100 });
       await fetchProposals();
     } catch (error) {
       toast.error(
