@@ -21,6 +21,7 @@ export interface ProposalDraftResult {
 
 export interface ProposalSection {
   id: string;
+  outline_section_id?: string | null;
   title: string;
   content: string;
   requirement_mappings: string[];
@@ -44,12 +45,14 @@ interface ExistingSectionSnapshot {
   requirement_mappings?: string[] | null;
   placeholders?: string[] | null;
   confidence?: "high" | "medium" | "low" | null;
+  outline_section_id?: string | null;
   section_order: number;
 }
 
 interface DraftSectionDefinition {
   key: string;
   title: string;
+  outlineSectionId?: string | null;
   sectionNumber?: string | null;
   volume?: string | null;
   instructions?: string | null;
@@ -85,7 +88,7 @@ export async function generateDraft(
   const { data: existingSections } = await supabase
     .from("proposal_sections")
     .select(
-      "id, title, content, review_status, requirement_mappings, placeholders, confidence, section_order"
+      "id, title, content, review_status, requirement_mappings, placeholders, confidence, outline_section_id, section_order"
     )
     .eq("proposal_draft_id", proposalId)
     .eq("workspace_id", workspaceId)
@@ -118,6 +121,7 @@ export async function generateDraft(
     ? outlineSections.map((section) => ({
         key: section.section_type,
         title: section.title,
+        outlineSectionId: section.id,
         sectionNumber: section.section_number,
         volume: section.volume,
         instructions: section.instructions,
@@ -251,6 +255,7 @@ Return JSON:
 
     sections.push({
       id: `section_${sectionDef.key}_${sections.length + 1}`,
+      outline_section_id: sectionDef.outlineSectionId || null,
       title: sectionDef.title,
       content: sectionData.content,
       requirement_mappings: sectionData.requirement_mappings,
@@ -294,6 +299,7 @@ Return JSON:
             requirement_mappings: section.requirement_mappings || [],
             placeholders: section.placeholders || [],
             confidence: section.confidence || null,
+            outline_section_id: section.outline_section_id || null,
             reason: "draft_regenerated",
           },
         }))
@@ -353,6 +359,7 @@ Return JSON:
         workspace_id: workspaceId,
         title: section.title,
         content: section.content,
+        outline_section_id: section.outline_section_id || null,
         section_order: i + 1,
         requirement_mappings: section.requirement_mappings,
         placeholders: section.placeholders,
@@ -388,6 +395,7 @@ Return JSON:
         metadata: {
           version: nextVersion,
           section_order: i + 1,
+          outline_section_id: section.outline_section_id || null,
           requirement_mappings: section.requirement_mappings,
           placeholders: section.placeholders,
           confidence: section.confidence,

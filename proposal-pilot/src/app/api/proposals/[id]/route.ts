@@ -51,7 +51,8 @@ export async function GET(
         *,
         solicitations(*, source_documents(*)),
         proposal_sections(*, citations(*)),
-        compliance_findings(*)
+        compliance_findings(*),
+        proposal_action_items(*)
       `
       )
       .eq("id", id)
@@ -139,6 +140,10 @@ export async function GET(
         )
       ),
       section_revisions: revisions || [],
+      proposal_action_items: (proposal.proposal_action_items || []).sort(
+        (a: { created_at?: string }, b: { created_at?: string }) =>
+          String(b.created_at || "").localeCompare(String(a.created_at || ""))
+      ),
       proposal_outcome: outcome || null,
       outline_sections: outlineSections || [],
       requirements: requirements || [],
