@@ -148,13 +148,24 @@ export default function OpportunitiesPage() {
 
       const result = await response.json();
       const enrichedCount = result.enrichment?.enriched ?? 0;
+      const created = result.opportunitiesCreated || 0;
       const enrichmentNote = enrichedCount
         ? ` AI analysis complete for ${enrichedCount} top match${enrichedCount === 1 ? "" : "es"}.`
         : "";
       toast.success(
-        `Discovery complete: ${result.opportunitiesCreated || 0} new, ${
-          result.opportunitiesRefreshed || 0
-        } refreshed, ${result.opportunitiesSkipped || 0} skipped.${enrichmentNote}`
+        `Discovery complete: ${created} new, ${result.opportunitiesRefreshed || 0} refreshed, ${result.opportunitiesSkipped || 0} skipped.${enrichmentNote}`,
+        created > 0
+          ? {
+              duration: 8000,
+              action: {
+                label: "View top match",
+                onClick: () => {
+                  // Scroll to top, where the highest score lands first.
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                },
+              },
+            }
+          : undefined
       );
       await fetchOpportunities();
     } catch (error) {

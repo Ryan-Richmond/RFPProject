@@ -4,8 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, X, ArrowRight, UserCircle, BookOpen, Target, FileSearch, Download } from "lucide-react";
+import { CheckCircle2, X, ArrowRight, UserCircle, BookOpen, Target, FileSearch, Download, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { ProgressRing } from "@/components/ui/progress-ring";
 
 interface OnboardingGuideProps {
   hasProfile: boolean;
@@ -103,11 +104,15 @@ export function OnboardingGuide({
   const nextIncompleteStep = steps.find((s) => !s.completed);
 
   return (
-    <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-background to-primary/5 shadow-md">
+    <Card className="relative overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.06] via-background to-violet/[0.05] shadow-md animate-content-rise">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-primary/10 blur-3xl"
+      />
       <Button
         variant="ghost"
         size="icon"
-        className="absolute right-2 top-2 h-8 w-8 text-muted-foreground hover:bg-background/50 hover:text-foreground"
+        className="absolute right-2 top-2 z-10 h-8 w-8 text-muted-foreground hover:bg-background/50 hover:text-foreground"
         onClick={handleDismiss}
         disabled={dismissing}
         title={preview ? "Close guide" : "Dismiss this guide"}
@@ -116,38 +121,43 @@ export function OnboardingGuide({
         <span className="sr-only">Dismiss</span>
       </Button>
 
-      <CardHeader className="pb-4">
-        <CardTitle className="text-xl">Get to Your First Proposal</CardTitle>
-        <CardDescription className="text-sm">
-          Follow these 5 steps to go from zero to a ready-to-submit proposal draft.
-        </CardDescription>
+      <CardHeader className="relative pb-4">
+        <div className="flex items-start gap-5">
+          <ProgressRing value={progressPercentage} size={84} stroke={8} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
+                Getting started
+              </span>
+            </div>
+            <CardTitle className="text-xl mt-1.5">
+              {progressPercentage === 100
+                ? "You&rsquo;re ready to win."
+                : "Get to your first proposal"}
+            </CardTitle>
+            <CardDescription className="text-sm mt-1">
+              {progressPercentage === 100
+                ? "Every milestone hit. Come back to this guide anytime from the Profile page."
+                : `${completedStepsCount} of ${steps.length} steps done — your next step is below.`}
+            </CardDescription>
 
-        <div className="mt-4 flex items-center gap-3">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/50">
-            <div
-              className="h-full bg-primary transition-all duration-500 ease-in-out"
-              style={{ width: `${progressPercentage}%` }}
-            />
+            {nextIncompleteStep ? (
+              <div className="mt-3">
+                <Link href={nextIncompleteStep.href}>
+                  <Button size="sm" className="gap-2">
+                    {nextIncompleteStep.cta} <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="mt-3 flex items-center gap-2 text-sm font-medium text-success">
+                <CheckCircle2 className="h-4 w-4" />
+                All steps complete.
+              </div>
+            )}
           </div>
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">
-            {completedStepsCount} of {steps.length} done
-          </span>
         </div>
-
-        {nextIncompleteStep ? (
-          <div className="mt-3">
-            <Link href={nextIncompleteStep.href}>
-              <Button size="sm" className="gap-2">
-                {nextIncompleteStep.cta} <ArrowRight className="h-3.5 w-3.5" />
-              </Button>
-            </Link>
-          </div>
-        ) : (
-          <div className="mt-3 flex items-center gap-2 text-sm font-medium text-success">
-            <CheckCircle2 className="h-4 w-4" />
-            All steps complete — you&apos;re ready to win.
-          </div>
-        )}
       </CardHeader>
 
       <CardContent>
@@ -159,11 +169,11 @@ export function OnboardingGuide({
             return (
               <Link key={step.title} href={step.href} className="block group">
                 <div
-                  className={`relative flex h-full flex-col rounded-lg border p-4 transition-all ${
+                  className={`relative flex h-full flex-col rounded-lg border p-4 card-lift ${
                     step.completed
                       ? "bg-muted/30 border-muted opacity-70"
                       : isNextAction
-                      ? "bg-background border-primary shadow-sm hover:shadow-md hover:border-primary/80"
+                      ? "bg-background border-primary/60 shadow-sm hover:border-primary/80"
                       : "bg-background border-muted hover:border-border"
                   }`}
                 >

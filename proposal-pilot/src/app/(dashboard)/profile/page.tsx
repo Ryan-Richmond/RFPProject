@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Building2, Save, Loader2, Plus, X, Info, CheckCircle2, BookOpen, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { SuggestingTagInput, type TagSuggestion } from "@/components/features/suggesting-tag-input";
+import { ProgressRing } from "@/components/ui/progress-ring";
 import { searchCapabilities, COMMON_CAPABILITIES } from "@/lib/profile/capabilities";
 import { searchNaicsCodes, findNaicsByCode } from "@/lib/profile/naics-codes";
 
@@ -153,6 +154,12 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Tracks whether the user has made changes since the last successful save,
+  // so we don't autosave the initial server payload.
+  const hydratedRef = useRef(false);
+  const debounceRef = useRef<number | null>(null);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const queuedRef = useRef<ClientProfile | null>(null);
 
   useEffect(() => {
     async function fetchProfile() {
@@ -175,33 +182,84 @@ export default function ProfilePage() {
         toast.error("Failed to load company profile.");
       } finally {
         setLoading(false);
+        // Mark hydration complete on the next tick so the initial setProfile
+        // call doesn't trigger an autosave.
+        requestAnimationFrame(() => {
+          hydratedRef.current = true;
+        });
       }
     }
     fetchProfile();
   }, []);
 
-  async function handleSave() {
+  async function postProfile(payload: ClientProfile): Promise<void> {
     setSaving(true);
-    setSaved(false);
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profile),
+        body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        setSaved(true);
-        toast.success("Company profile saved. Opportunity scoring will use the updated profile.");
-        setTimeout(() => setSaved(false), 3000);
-      } else {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error || "Failed to save profile");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to save profile");
       }
-    } catch (error) {
-      console.error("Failed to save profile:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to save profile. Please try again.");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Autosave with a tail-latest queue: if a save fires while another is in
+  // flight, we hold the latest payload and send it after the current one resolves.
+  async function autosave(payload: ClientProfile): Promise<void> {
+    if (inFlightRef.current) {
+      queuedRef.current = payload;
+      return;
+    }
+    const run = async () => {
+      try {
+        await postProfile(payload);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Autosave failed");
+      } finally {
+        const next = queuedRef.current;
+        queuedRef.current = null;
+        inFlightRef.current = null;
+        if (next) {
+          // Chain the queued payload.
+          await autosave(next);
+        }
+      }
+    };
+    inFlightRef.current = run();
+    await inFlightRef.current;
+  }
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+    const snapshot = profile;
+    debounceRef.current = window.setTimeout(() => {
+      autosave(snapshot);
+    }, 600);
+    return () => {
+      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile]);
+
+  async function handleSave() {
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    try {
+      await autosave(profile);
+      toast.success("Profile saved. Scoring will use the updated profile on the next run.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save profile.");
     }
   }
 
@@ -268,55 +326,48 @@ export default function ProfilePage() {
   const score = completionScore(profile);
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-3xl animate-content-rise">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Company Profile</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            This profile drives opportunity scoring and RFP matching. The more complete it is, the better the AI can target the right RFPs for you.
+          <h1 className="text-3xl font-bold tracking-tight">Company Profile</h1>
+          <p className="text-muted-foreground text-sm mt-1.5">
+            This profile drives opportunity scoring and RFP matching. The more complete it is, the sharper your match scores.
           </p>
         </div>
-        <Button onClick={handleSave} disabled={saving} className="gap-2 shrink-0">
+        <div
+          className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0"
+          aria-live="polite"
+        >
           {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Saving…</span>
+            </>
           ) : saved ? (
             <>
-              <CheckCircle2 className="h-4 w-4" />
-              Saved
+              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              <span>Saved</span>
             </>
           ) : (
-            <>
-              <Save className="h-4 w-4" />
-              Save Profile
-            </>
+            <span className="opacity-60">Autosaves as you type</span>
           )}
-        </Button>
+        </div>
       </div>
 
       {/* Completion indicator */}
-      <div className="rounded-lg border bg-muted/30 px-4 py-3">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium">Profile Completeness</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
+      <div className="rounded-xl border bg-gradient-to-br from-muted/40 via-background to-muted/20 px-5 py-4">
+        <div className="flex items-center gap-5">
+          <ProgressRing value={score} size={88} stroke={9} />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold">Profile Completeness</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
               {score < 50
-                ? "Complete your profile to unlock accurate opportunity scoring"
+                ? "Complete your profile to unlock accurate opportunity scoring. Every field you fill makes matching sharper."
                 : score < 85
-                ? "Good start — fill in the remaining fields for best results"
-                : "Your profile is well-configured for high-quality matches"}
+                ? "Good start — filling the remaining fields will sharpen NAICS, set-aside, and capability matching."
+                : "Your profile is well-configured. Opportunity scores reflect your real fit."}
             </p>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="h-2 w-32 overflow-hidden rounded-full bg-muted">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  score >= 85 ? "bg-success" : score >= 50 ? "bg-primary" : "bg-warning"
-                }`}
-                style={{ width: `${score}%` }}
-              />
-            </div>
-            <span className="text-sm font-bold tabular-nums">{score}%</span>
           </div>
         </div>
       </div>
@@ -692,25 +743,24 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Save CTA */}
-      <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-4 py-3">
-        <p className="text-sm text-muted-foreground">
-          Changes take effect on the next opportunity discovery run.
+      {/* Autosave footer note */}
+      <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+        <p className="text-muted-foreground">
+          Changes save automatically. They take effect on the next opportunity discovery run.
         </p>
-        <Button onClick={handleSave} disabled={saving} className="gap-2 shrink-0">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleSave}
+          disabled={saving}
+          className="gap-2 text-muted-foreground hover:text-foreground"
+        >
           {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : saved ? (
-            <>
-              <CheckCircle2 className="h-4 w-4" />
-              Saved
-            </>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
-            <>
-              <Save className="h-4 w-4" />
-              Save Profile
-            </>
+            <Save className="h-3.5 w-3.5" />
           )}
+          Save now
         </Button>
       </div>
     </div>
