@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PipelineStepper } from "@/components/features/pipeline-stepper";
 import {
   AlertTriangle,
+  ArrowLeft,
   CheckCircle2,
   CircleDashed,
   Download,
@@ -31,7 +33,9 @@ import {
   FileSearch,
   History,
   Loader2,
+  LockKeyhole,
   PenTool,
+  RefreshCw,
   Save,
   Shield,
   Sparkles,
@@ -320,6 +324,10 @@ export default function ProposalDetailPage() {
   const params = useParams<{ id: string }>();
   const [proposal, setProposal] = useState<ProposalDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<{
+    status: number | null;
+    message: string;
+  } | null>(null);
   const [runningAnalysis, setRunningAnalysis] = useState(false);
   const [generatingDraft, setGeneratingDraft] = useState(false);
   const [runningCompliance, setRunningCompliance] = useState(false);
@@ -349,14 +357,33 @@ export default function ProposalDetailPage() {
 
   const fetchProposal = useCallback(async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const response = await fetch(`/api/proposals/${params.id}`);
       if (response.ok) {
         const data = await response.json();
         setProposal(data);
+        return;
       }
+
+      const payload = await response.json().catch(() => ({}));
+      setProposal(null);
+      setFetchError({
+        status: response.status,
+        message:
+          (payload && typeof payload.error === "string" && payload.error) ||
+          `Request failed with status ${response.status}.`,
+      });
     } catch (error) {
       console.error("Failed to fetch proposal:", error);
+      setProposal(null);
+      setFetchError({
+        status: null,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Network error — could not reach the server.",
+      });
     } finally {
       setLoading(false);
     }
@@ -986,9 +1013,108 @@ export default function ProposalDetailPage() {
   }
 
   if (!proposal) {
+    const status = fetchError?.status ?? null;
+    const isUnauthorized = status === 401;
+    const isForbidden = status === 403;
+    const isNotFound = status === 404;
+    const isServerError = status !== null && status >= 500;
+    const Icon = isUnauthorized || isForbidden
+      ? LockKeyhole
+      : isNotFound
+      ? FileSearch
+      : AlertTriangle;
+
+    const headline = isUnauthorized
+      ? "You're signed out"
+      : isForbidden
+      ? "You don't have access to this proposal"
+      : isNotFound
+      ? "We couldn't find this proposal"
+      : isServerError
+      ? "The server hit an error loading this proposal"
+      : fetchError
+      ? "Something went wrong loading this proposal"
+      : "This proposal isn't available";
+
+    const description = isUnauthorized
+      ? "Your session has expired. Sign back in to keep working on this proposal."
+      : isForbidden
+      ? "This proposal belongs to a workspace you're not a member of. If you expected access, switch workspaces or ask a teammate to invite you."
+      : isNotFound
+      ? "It may have been deleted, moved to another workspace, or the link is out of date. Try refreshing — analysis sometimes runs in the background after upload."
+      : isServerError
+      ? "The proposal exists but we couldn't load its detail. Retry in a moment, or check the workspace dashboard for status."
+      : fetchError
+      ? fetchError.message
+      : "We couldn't load this proposal. Go back to the proposal list and try again.";
+
     return (
-      <div className="py-16 text-center">
-        <p className="text-sm text-muted-foreground">Proposal not found.</p>
+      <div className="space-y-6">
+        <div>
+          <Link
+            href="/proposals"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            Back to RFP Analysis
+          </Link>
+        </div>
+
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <div
+              className={`mb-4 flex h-14 w-14 items-center justify-center rounded-2xl ${
+                isUnauthorized || isForbidden
+                  ? "bg-warning/10 text-warning"
+                  : isNotFound
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-danger/10 text-danger"
+              }`}
+            >
+              <Icon className="h-7 w-7" />
+            </div>
+            <h2 className="text-lg font-semibold mb-2">{headline}</h2>
+            <p className="text-sm text-muted-foreground max-w-md mb-2">
+              {description}
+            </p>
+            {fetchError?.status ? (
+              <p className="text-xs text-muted-foreground/70 mb-6">
+                Reference: HTTP {fetchError.status}
+                {params?.id ? ` · proposal id ${params.id.slice(0, 8)}…` : ""}
+              </p>
+            ) : (
+              <div className="mb-6" />
+            )}
+
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Link href="/proposals">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to RFP Analysis
+                </Button>
+              </Link>
+              {isUnauthorized ? (
+                <Link href="/login">
+                  <Button size="sm">Sign back in</Button>
+                </Link>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={fetchProposal}
+                  disabled={loading}
+                  className="gap-2"
+                >
+                  {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Try again
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
