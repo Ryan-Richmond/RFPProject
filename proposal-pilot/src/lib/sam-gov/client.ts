@@ -5,7 +5,7 @@
  * the RFP analyzer can work off the real source-of-truth content (SOW,
  * Sections L/M, amendments) rather than a discovery synopsis.
  *
- * Requires `SAM_API_KEY` in the environment.
+ * Requires `SAM_GOV_API_KEY` in the environment.
  */
 
 const SAM_API_BASE = "https://api.sam.gov";
@@ -31,14 +31,14 @@ export interface SamFetchResult {
 }
 
 export function isSamApiConfigured(): boolean {
-  return Boolean(process.env.SAM_API_KEY);
+  return Boolean(process.env.SAM_GOV_API_KEY);
 }
 
 function requireKey(): string {
-  const key = process.env.SAM_API_KEY;
+  const key = process.env.SAM_GOV_API_KEY;
   if (!key) {
     throw new Error(
-      "SAM_API_KEY is not configured. Set it in .env.local to enable SAM.gov fetches."
+      "SAM_GOV_API_KEY is not configured. Set it in .env.local to enable SAM.gov fetches."
     );
   }
   return key;

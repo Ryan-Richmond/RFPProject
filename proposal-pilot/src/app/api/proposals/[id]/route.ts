@@ -51,8 +51,7 @@ export async function GET(
         *,
         solicitations(*, source_documents(*)),
         proposal_sections(*, citations(*)),
-        compliance_findings(*),
-        proposal_action_items(*)
+        compliance_findings(*)
       `
       )
       .eq("id", id)
@@ -95,6 +94,7 @@ export async function GET(
       { data: revisions },
       { data: outcome },
       { data: outlineSections },
+      { data: actionItems },
     ] = await Promise.all([
       supabase
         .from("extracted_requirements")
@@ -126,6 +126,12 @@ export async function GET(
         .eq("proposal_draft_id", id)
         .eq("workspace_id", workspaceId)
         .order("section_order", { ascending: true }),
+      supabase
+        .from("proposal_action_items")
+        .select("*")
+        .eq("proposal_draft_id", id)
+        .eq("workspace_id", workspaceId)
+        .order("created_at", { ascending: false }),
     ]);
 
     const revisionsBySection = ((revisions || []) as ProposalSectionRevisionSummary[]).reduce<
@@ -164,7 +170,7 @@ export async function GET(
         )
       ),
       section_revisions: revisions || [],
-      proposal_action_items: (proposal.proposal_action_items || []).sort(
+      proposal_action_items: (actionItems || []).sort(
         (a: { created_at?: string }, b: { created_at?: string }) =>
           String(b.created_at || "").localeCompare(String(a.created_at || ""))
       ),
