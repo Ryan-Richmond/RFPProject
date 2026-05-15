@@ -1,7 +1,11 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const { validatePullRequest } = require("../scripts/validate-pr");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+const { validateEventFile, validatePullRequest } = require("../scripts/validate-pr");
 
 const validBody = `## Summary
 
@@ -89,4 +93,26 @@ test("skips draft pull requests", () => {
   });
 
   assert.deepEqual(errors, []);
+});
+
+test("skips Dependabot pull requests", () => {
+  const eventPath = path.join(os.tmpdir(), `dependabot-pr-${Date.now()}.json`);
+
+  fs.writeFileSync(
+    eventPath,
+    JSON.stringify({
+      pull_request: {
+        title: "Bump next from 16.2.3 to 16.2.4",
+        body: "",
+        draft: false,
+        user: { login: "dependabot[bot]" },
+      },
+    })
+  );
+
+  try {
+    assert.deepEqual(validateEventFile(eventPath), []);
+  } finally {
+    fs.unlinkSync(eventPath);
+  }
 });

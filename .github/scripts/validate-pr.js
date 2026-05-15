@@ -116,6 +116,10 @@ function validateEventFile(path) {
     return [];
   }
 
+  if (/^dependabot(?:\[bot\])?$/.test(pullRequest.user?.login || "")) {
+    return [];
+  }
+
   return validatePullRequest({
     title: pullRequest.title,
     body: pullRequest.body || "",
@@ -152,5 +156,6 @@ module.exports = {
   REQUIRED_SECTIONS,
   extractSection,
   uncheckedChecklistItems,
+  validateEventFile,
   validatePullRequest,
 };
