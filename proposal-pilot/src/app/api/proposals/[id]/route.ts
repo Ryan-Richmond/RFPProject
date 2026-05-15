@@ -57,10 +57,34 @@ export async function GET(
       )
       .eq("id", id)
       .eq("workspace_id", workspaceId)
-      .single();
+      .maybeSingle();
 
-    if (error || !proposal) {
-      return NextResponse.json({ error: "Proposal not found" }, { status: 404 });
+    if (error) {
+      console.error("Proposal detail query error:", {
+        id,
+        workspaceId,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "We couldn't load this proposal. The underlying query failed — please retry, or contact support if it persists.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!proposal) {
+      return NextResponse.json(
+        {
+          error:
+            "This proposal doesn't exist in your active workspace. It may have been deleted, or it belongs to a different workspace.",
+        },
+        { status: 404 }
+      );
     }
 
     const solicitationId = proposal.solicitation_id;

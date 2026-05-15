@@ -15,6 +15,7 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   ChevronRight,
   Loader2,
   RefreshCw,
@@ -60,17 +61,31 @@ export default function ProposalsPage() {
   const router = useRouter();
   const [proposals, setProposals] = useState<ProposalWorkflow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchProposals = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const response = await fetch("/api/proposals");
       if (response.ok) {
         const data = await response.json();
         setProposals(data);
+        return;
       }
+
+      const payload = await response.json().catch(() => ({}));
+      setLoadError(
+        (payload && typeof payload.error === "string" && payload.error) ||
+          `Could not load proposals (HTTP ${response.status}).`
+      );
     } catch (error) {
       console.error("Failed to fetch proposals:", error);
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Network error — could not reach the server."
+      );
     } finally {
       setLoading(false);
     }
@@ -114,6 +129,25 @@ export default function ProposalsPage() {
           <CardTitle className="text-base">Active Proposal Workflows</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          {loadError && !loading ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-4 py-8 text-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-danger/10">
+                <AlertTriangle className="h-5 w-5 text-danger" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">
+                  Couldn&apos;t load proposal workflows
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-md">
+                  {loadError}
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={fetchProposals} className="gap-2">
+                <RefreshCw className="h-3.5 w-3.5" />
+                Try again
+              </Button>
+            </div>
+          ) : null}
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -121,7 +155,7 @@ export default function ProposalsPage() {
                 Loading proposals...
               </p>
             </div>
-          ) : proposals.length === 0 ? (
+          ) : loadError ? null : proposals.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                 <FileSearch className="h-5 w-5 text-muted-foreground" />
