@@ -16,7 +16,7 @@ import { createClient } from "@/lib/supabase/server";
 
 /**
  * For a solicitation created via the discovery pipeline, find the matching
- * `sam_opportunities` row and (if `SAM_API_KEY` is set) fetch the full
+ * `sam_opportunities` row and (if `SAM_GOV_API_KEY` is set) fetch the full
  * description + attachments, persist them as a real `source_document`, and
  * link it to the solicitation. Returns the extracted text on success.
  */
@@ -249,7 +249,7 @@ export async function analyzeRFP(
     throw new Error(
       isSamApiConfigured()
         ? "Could not fetch any solicitation content from SAM.gov for this notice. Upload the solicitation PDF to continue."
-        : "No extracted text available for this RFP. Upload the solicitation PDF, or set SAM_API_KEY to fetch automatically."
+        : "No extracted text available for this RFP. Upload the solicitation PDF, or set SAM_GOV_API_KEY to fetch automatically."
     );
   }
 
