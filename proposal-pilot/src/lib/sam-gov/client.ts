@@ -30,15 +30,19 @@ export interface SamFetchResult {
   failedAttachments: Array<{ resource: SamResource; error: string }>;
 }
 
+function resolveSamKey(): string | undefined {
+  return process.env.SAM_GOV_API_KEY || process.env.SAM_API_KEY;
+}
+
 export function isSamApiConfigured(): boolean {
-  return Boolean(process.env.SAM_GOV_API_KEY);
+  return Boolean(resolveSamKey());
 }
 
 function requireKey(): string {
-  const key = process.env.SAM_GOV_API_KEY;
+  const key = resolveSamKey();
   if (!key) {
     throw new Error(
-      "SAM_GOV_API_KEY is not configured. Set it in .env.local to enable SAM.gov fetches."
+      "SAM_GOV_API_KEY is not configured. Set it in Vercel env vars (or .env.local for local dev) to enable SAM.gov fetches."
     );
   }
   return key;
