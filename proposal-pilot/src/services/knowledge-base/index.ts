@@ -29,6 +29,7 @@ export interface KnowledgeBaseIndexResult {
 export interface EvidenceChunk {
   id: string;
   source_document_id: string;
+  source_document_name?: string | null;
   content: string;
   category:
     | "past_performance"
@@ -260,34 +261,45 @@ export async function searchEvidence(
     match_count: limit,
   });
 
-  if (error) {
-    // Fallback: text search if RPC not available
-    const { data: fallbackData } = await supabase
-      .from("evidence_chunks")
-      .select("*")
-      .eq("workspace_id", workspaceId)
-      .eq("is_excluded", false)
-      .textSearch("content", query.split(" ").slice(0, 5).join(" & "))
-      .limit(limit);
+  const rawRows: Array<Record<string, unknown>> = error
+    ? await (async () => {
+        const { data: fallbackData } = await supabase
+          .from("evidence_chunks")
+          .select("*")
+          .eq("workspace_id", workspaceId)
+          .eq("is_excluded", false)
+          .textSearch("content", query.split(" ").slice(0, 5).join(" & "))
+          .limit(limit);
+        return fallbackData || [];
+      })()
+    : (data || []);
 
-    return (fallbackData || []).map((row) => ({
-      id: row.id,
-      source_document_id: row.source_document_id,
-      content: row.content,
-      category: row.category,
-      metadata: {
-        naics_codes: row.naics_codes,
-        agency: row.agency,
-        contract_type: row.contract_type,
-        keywords: row.keywords,
-        date: row.content_date,
-      },
-    }));
+  const docIds = Array.from(
+    new Set(
+      rawRows
+        .map((row) => row.source_document_id as string | null | undefined)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    )
+  );
+
+  const docNameById = new Map<string, string>();
+  if (docIds.length > 0) {
+    const { data: docs } = await supabase
+      .from("source_documents")
+      .select("id, filename")
+      .in("id", docIds);
+    for (const doc of docs || []) {
+      if (doc?.id && doc?.filename) {
+        docNameById.set(doc.id as string, doc.filename as string);
+      }
+    }
   }
 
-  return (data || []).map((row: Record<string, unknown>) => ({
+  return rawRows.map((row) => ({
     id: row.id as string,
     source_document_id: row.source_document_id as string,
+    source_document_name:
+      docNameById.get(row.source_document_id as string) || null,
     content: row.content as string,
     category: row.category as EvidenceChunk["category"],
     metadata: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -303,6 +303,103 @@ function formatRevisionTime(dateString: string) {
   return date.toLocaleDateString();
 }
 
+function looksLikeUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value.trim()
+  );
+}
+
+function stripStrayCitationIds(text: string): string {
+  // Remove any literal [Evidence: <uuid>] or trailing bare uuid fragments left
+  // from earlier drafts. Keep human-readable bracket refs intact.
+  return text
+    .replace(/\[\s*Evidence\s*[:#]?\s*[0-9a-f-]{6,}\s*\]/gi, "")
+    .replace(/\[\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\s*\]/gi, "");
+}
+
+function SectionContent({ content }: { content: string }) {
+  const cleaned = stripStrayCitationIds(content || "");
+  const lines = cleaned.split(/\r?\n/);
+  const blocks: ReactNode[] = [];
+  let paragraph: string[] = [];
+  let bulletItems: string[] = [];
+
+  const flushParagraph = (key: string) => {
+    if (paragraph.length === 0) return;
+    blocks.push(
+      <p key={key} className="text-sm leading-relaxed">
+        {paragraph.join(" ").trim()}
+      </p>
+    );
+    paragraph = [];
+  };
+
+  const flushBullets = (key: string) => {
+    if (bulletItems.length === 0) return;
+    blocks.push(
+      <ul key={key} className="ml-5 list-disc space-y-1 text-sm leading-relaxed">
+        {bulletItems.map((item, idx) => (
+          <li key={`${key}-${idx}`}>{item}</li>
+        ))}
+      </ul>
+    );
+    bulletItems = [];
+  };
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+    const bulletMatch = line.match(/^[-•*]\s+(.*)$/);
+
+    if (line === "") {
+      flushParagraph(`p-${index}`);
+      flushBullets(`b-${index}`);
+      return;
+    }
+
+    if (headingMatch) {
+      flushParagraph(`p-${index}`);
+      flushBullets(`b-${index}`);
+      const level = headingMatch[1].length;
+      const text = headingMatch[2].trim();
+      const className =
+        level <= 2
+          ? "mt-2 text-base font-semibold text-foreground"
+          : level === 3
+          ? "mt-2 text-sm font-semibold text-foreground"
+          : "mt-2 text-sm font-medium text-foreground";
+      blocks.push(
+        <p key={`h-${index}`} className={className}>
+          {text}
+        </p>
+      );
+      return;
+    }
+
+    if (bulletMatch) {
+      flushParagraph(`p-${index}`);
+      bulletItems.push(bulletMatch[1].trim());
+      return;
+    }
+
+    flushBullets(`b-${index}`);
+    paragraph.push(line);
+  });
+
+  flushParagraph("p-end");
+  flushBullets("b-end");
+
+  if (blocks.length === 0) {
+    return (
+      <p className="text-sm leading-relaxed text-muted-foreground">
+        (empty section)
+      </p>
+    );
+  }
+
+  return <div className="space-y-3">{blocks}</div>;
+}
+
 function getRevisionLabel(revision: ProposalSectionRevision) {
   switch (revision.change_type) {
     case "generated":
@@ -338,6 +435,15 @@ export default function ProposalDetailPage() {
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [draftEdits, setDraftEdits] = useState<Record<string, string>>({});
   const [savingSectionId, setSavingSectionId] = useState<string | null>(null);
+  const [editContext, setEditContext] = useState<Record<string, string>>({});
+  const [placeholderInputs, setPlaceholderInputs] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [regeneratingSectionId, setRegeneratingSectionId] = useState<string | null>(
+    null
+  );
+  const [showFullDraftRegenDialog, setShowFullDraftRegenDialog] = useState(false);
+  const [fullDraftContext, setFullDraftContext] = useState("");
   const [exportingMode, setExportingMode] = useState<"clean" | "annotated" | "review_package" | null>(
     null
   );
@@ -931,6 +1037,94 @@ export default function ProposalDetailPage() {
     }
   }
 
+  async function regenerateSectionWithContext(
+    sectionId: string,
+    section: ProposalSection
+  ) {
+    if (!proposal) return;
+
+    const projectContext = (editContext[sectionId] || "").trim();
+    const placeholderValues = placeholderInputs[sectionId] || {};
+
+    if (!projectContext && Object.values(placeholderValues).every((v) => !v?.trim())) {
+      const proceed = window.confirm(
+        "No project details provided. Regenerate this section anyway?"
+      );
+      if (!proceed) return;
+    }
+
+    setRegeneratingSectionId(sectionId);
+    try {
+      const response = await fetch(
+        `/api/proposals/${proposal.id}/sections/${sectionId}/regenerate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectContext: projectContext || undefined,
+            placeholderValues,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Section regeneration failed");
+      }
+
+      setEditingSectionId(null);
+      setEditContext((prev) => {
+        const next = { ...prev };
+        delete next[sectionId];
+        return next;
+      });
+      setPlaceholderInputs((prev) => {
+        const next = { ...prev };
+        delete next[sectionId];
+        return next;
+      });
+      await fetchProposal();
+      toast.success(`"${section.title}" regenerated with your details.`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Section regeneration failed"
+      );
+    } finally {
+      setRegeneratingSectionId(null);
+    }
+  }
+
+  async function regenerateFullDraft() {
+    if (!proposal) return;
+
+    setShowFullDraftRegenDialog(false);
+    setGeneratingDraft(true);
+    try {
+      const response = await fetch(`/api/proposals/${proposal.id}/draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emphasis: fullDraftContext.trim() || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Draft regeneration failed");
+      }
+
+      setFullDraftContext("");
+      await fetchProposal();
+      toast.success("Draft regenerated with your project details.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Draft regeneration failed"
+      );
+    } finally {
+      setGeneratingDraft(false);
+    }
+  }
+
   async function exportProposal(mode: "clean" | "annotated" | "review_package") {
     if (!proposal) return;
 
@@ -1140,6 +1334,57 @@ export default function ProposalDetailPage() {
             <Button onClick={executeDraft} disabled={generatingDraft} className="gap-2">
               {generatingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : <PenTool className="h-4 w-4" />}
               Generate Anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showFullDraftRegenDialog}
+        onOpenChange={(open) => {
+          if (!open) setShowFullDraftRegenDialog(false);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Regenerate full draft with project details</DialogTitle>
+            <DialogDescription>
+              Add any project-specific context the AI should weave into every
+              section — team members, key dates, contract values, win themes,
+              differentiators, customer pain points. Existing edits will be
+              superseded but kept in revision history.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Project details
+            </p>
+            <textarea
+              className="min-h-[180px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder="e.g. Prime: Downstreet Digital. Period of performance: 12 months base + 4 option years. Key personnel: PM Jane Doe (PMP, TS/SCI), Tech Lead John Smith. Differentiators: zero-trust accelerator, 24/7 SOC, prior CDM Dashboard contract for DHS in 2024…"
+              value={fullDraftContext}
+              onChange={(event) => setFullDraftContext(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowFullDraftRegenDialog(false)}
+              disabled={generatingDraft}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={regenerateFullDraft}
+              disabled={generatingDraft}
+              className="gap-2"
+            >
+              {generatingDraft ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Regenerate Draft
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1797,6 +2042,22 @@ export default function ProposalDetailPage() {
             </Card>
           ) : (
             <>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => {
+                    setFullDraftContext("");
+                    setShowFullDraftRegenDialog(true);
+                  }}
+                  disabled={generatingDraft}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Regenerate full draft with details
+                </Button>
+              </div>
+
               {draftRiskSummary ? (
                 <div className="grid gap-4 sm:grid-cols-5">
                   {[
@@ -1923,18 +2184,88 @@ export default function ProposalDetailPage() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       {editingSectionId === section.id ? (
-                        <div className="space-y-3">
-                          <textarea
-                            className="min-h-[240px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            value={draftEdits[section.id] || ""}
-                            onChange={(event) =>
-                              setDraftEdits((prev) => ({
-                                ...prev,
-                                [section.id]: event.target.value,
-                              }))
-                            }
-                          />
-                          <div className="flex gap-2">
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Section Content
+                            </p>
+                            <textarea
+                              className="min-h-[240px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              value={draftEdits[section.id] || ""}
+                              onChange={(event) =>
+                                setDraftEdits((prev) => ({
+                                  ...prev,
+                                  [section.id]: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+
+                          {section.placeholders?.length ? (
+                            <div className="space-y-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-warning">
+                                Fill in placeholders
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Provide the specific value for each placeholder.
+                                These are passed to the AI when you regenerate.
+                              </p>
+                              <div className="space-y-2">
+                                {section.placeholders.map((placeholder) => (
+                                  <div
+                                    key={placeholder}
+                                    className="grid gap-1 sm:grid-cols-[1fr,2fr] sm:items-start"
+                                  >
+                                    <p className="text-xs font-medium text-foreground">
+                                      {placeholder}
+                                    </p>
+                                    <Input
+                                      placeholder="Enter the value to fill this placeholder…"
+                                      value={
+                                        placeholderInputs[section.id]?.[
+                                          placeholder
+                                        ] || ""
+                                      }
+                                      onChange={(event) =>
+                                        setPlaceholderInputs((prev) => ({
+                                          ...prev,
+                                          [section.id]: {
+                                            ...(prev[section.id] || {}),
+                                            [placeholder]: event.target.value,
+                                          },
+                                        }))
+                                      }
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Project details for the AI
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Add any specifics the AI should weave into this
+                              section — team members, dates, contract values,
+                                  win themes, differentiators, etc. Leave blank
+                              to keep the existing prose untouched on save.
+                            </p>
+                            <textarea
+                              className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              placeholder="e.g. Our PM is Jane Doe (PMP, 15 yrs DoD); we'll staff 8 cleared engineers; emphasize zero-trust architecture; reference our 2024 DHS CDM win…"
+                              value={editContext[section.id] || ""}
+                              onChange={(event) =>
+                                setEditContext((prev) => ({
+                                  ...prev,
+                                  [section.id]: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
                             <Button
                               className="gap-2"
                               onClick={() =>
@@ -1943,7 +2274,10 @@ export default function ProposalDetailPage() {
                                   reviewStatus: "edited",
                                 })
                               }
-                              disabled={savingSectionId === section.id}
+                              disabled={
+                                savingSectionId === section.id ||
+                                regeneratingSectionId === section.id
+                              }
                             >
                               {savingSectionId === section.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1953,17 +2287,34 @@ export default function ProposalDetailPage() {
                               Save Changes
                             </Button>
                             <Button
+                              variant="secondary"
+                              className="gap-2"
+                              onClick={() =>
+                                regenerateSectionWithContext(section.id, section)
+                              }
+                              disabled={
+                                regeneratingSectionId === section.id ||
+                                savingSectionId === section.id
+                              }
+                            >
+                              {regeneratingSectionId === section.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-4 w-4" />
+                              )}
+                              Regenerate with details
+                            </Button>
+                            <Button
                               variant="ghost"
                               onClick={() => setEditingSectionId(null)}
+                              disabled={regeneratingSectionId === section.id}
                             >
                               Cancel
                             </Button>
                           </div>
                         </div>
                       ) : (
-                        <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                          {section.content}
-                        </div>
+                        <SectionContent content={section.content} />
                       )}
 
                       {sectionComplianceRisks.length ? (
@@ -2032,21 +2383,34 @@ export default function ProposalDetailPage() {
                       {section.citations?.length ? (
                         <div className="space-y-2">
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            Citations
+                            Evidence Sources
                           </p>
-                          {section.citations.map((citation) => (
-                            <div
-                              key={citation.id}
-                              className="rounded-lg border p-3 text-xs text-muted-foreground"
-                            >
-                              <p className="font-medium text-foreground">
-                                {citation.source_document_name || "Evidence source"}
-                              </p>
-                              <p className="mt-1">
-                                {citation.excerpt || "No excerpt available."}
-                              </p>
-                            </div>
-                          ))}
+                          {section.citations.map((citation, idx) => {
+                            const rawName = (citation.source_document_name || "").trim();
+                            const displayName =
+                              rawName && !looksLikeUuid(rawName)
+                                ? rawName
+                                : `Evidence source ${idx + 1}`;
+                            return (
+                              <div
+                                key={citation.id}
+                                className="rounded-lg border p-3 text-xs text-muted-foreground"
+                              >
+                                <p className="font-medium text-foreground">
+                                  {displayName}
+                                </p>
+                                {citation.excerpt ? (
+                                  <p className="mt-1 italic">
+                                    “{citation.excerpt.length > 220
+                                      ? `${citation.excerpt.slice(0, 220)}…`
+                                      : citation.excerpt}”
+                                  </p>
+                                ) : (
+                                  <p className="mt-1">No excerpt available.</p>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : null}
                     </CardContent>
