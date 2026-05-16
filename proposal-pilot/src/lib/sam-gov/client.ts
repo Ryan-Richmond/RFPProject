@@ -28,17 +28,25 @@ export interface SamFetchResult {
     bytes: number;
   }>;
   failedAttachments: Array<{ resource: SamResource; error: string }>;
+  /** Set when the description endpoint threw (network, 401, etc.). */
+  descriptionError?: string;
+  /** Set when the resource-list endpoint threw (network, 401, etc.). */
+  resourceListError?: string;
+}
+
+function resolveSamKey(): string | undefined {
+  return process.env.SAM_GOV_API_KEY || process.env.SAM_API_KEY;
 }
 
 export function isSamApiConfigured(): boolean {
-  return Boolean(process.env.SAM_GOV_API_KEY);
+  return Boolean(resolveSamKey());
 }
 
 function requireKey(): string {
-  const key = process.env.SAM_GOV_API_KEY;
+  const key = resolveSamKey();
   if (!key) {
     throw new Error(
-      "SAM_GOV_API_KEY is not configured. Set it in .env.local to enable SAM.gov fetches."
+      "SAM_GOV_API_KEY is not configured. Set it in Vercel env vars (or .env.local for local dev) to enable SAM.gov fetches."
     );
   }
   return key;
@@ -186,12 +194,19 @@ export async function fetchNoticeBundle(
 ): Promise<SamFetchResult> {
   const { parseDocument } = await import("@/lib/documents/parser");
 
+  let descriptionError: string | undefined;
+  let resourceListError: string | undefined;
+
   const [description, resources] = await Promise.all([
     fetchNoticeDescription(noticeId).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      descriptionError = message;
       console.warn(`SAM description fetch failed for ${noticeId}:`, error);
       return "";
     }),
     listNoticeResources(noticeId).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      resourceListError = message;
       console.warn(`SAM resource list failed for ${noticeId}:`, error);
       return [] as SamResource[];
     }),
@@ -243,7 +258,14 @@ export async function fetchNoticeBundle(
     }
   }
 
-  return { description, resources, attachments, failedAttachments };
+  return {
+    description,
+    resources,
+    attachments,
+    failedAttachments,
+    descriptionError,
+    resourceListError,
+  };
 }
 
 /**

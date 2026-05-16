@@ -20,13 +20,34 @@ import { createClient } from "@/lib/supabase/server";
  * description + attachments, persist them as a real `source_document`, and
  * link it to the solicitation. Returns the extracted text on success.
  */
+class SamHydrationError extends Error {
+  constructor(
+    message: string,
+    public readonly stage:
+      | "not_configured"
+      | "no_match"
+      | "no_notice_id"
+      | "empty_bundle"
+      | "fetch_failed"
+      | "persist_failed"
+  ) {
+    super(message);
+    this.name = "SamHydrationError";
+  }
+}
+
 async function hydrateSourceFromSamGov(args: {
   solicitationId: string;
   workspaceId: string;
   solicitationNumber: string | null;
   title: string;
 }): Promise<{ text: string; sourceDocumentId: string } | null> {
-  if (!isSamApiConfigured()) return null;
+  if (!isSamApiConfigured()) {
+    throw new SamHydrationError(
+      "SAM_GOV_API_KEY is not set in this deployment. Add it to Vercel project env vars.",
+      "not_configured"
+    );
+  }
 
   const supabase = await createClient();
 
@@ -50,11 +71,39 @@ async function hydrateSourceFromSamGov(args: {
     samOpportunity = data || null;
   }
 
-  if (!samOpportunity?.notice_id) return null;
+  if (!samOpportunity) {
+    throw new SamHydrationError(
+      `No matching sam_opportunities row found (solicitation_number=${args.solicitationNumber || "—"}, title="${args.title}").`,
+      "no_match"
+    );
+  }
 
-  const bundle = await fetchNoticeBundle(samOpportunity.notice_id);
+  if (!samOpportunity.notice_id) {
+    throw new SamHydrationError(
+      `The matched sam_opportunities row has no notice_id — cannot call SAM.gov API.`,
+      "no_notice_id"
+    );
+  }
+
+  let bundle;
+  try {
+    bundle = await fetchNoticeBundle(samOpportunity.notice_id);
+  } catch (error) {
+    throw new SamHydrationError(
+      `SAM.gov API call failed for notice ${samOpportunity.notice_id}: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`,
+      "fetch_failed"
+    );
+  }
+
   const text = buildAnalyzerText(bundle);
-  if (!text.trim()) return null;
+  if (!text.trim()) {
+    throw new SamHydrationError(
+      `SAM.gov returned no usable content for notice ${samOpportunity.notice_id} (${bundle.resources.length} attachments listed, ${bundle.attachments.length} parsed, ${bundle.failedAttachments.length} skipped).`,
+      "empty_bundle"
+    );
+  }
 
   const filename = `sam-${samOpportunity.notice_id}.txt`;
   const filePath = `${args.workspaceId}/rfp/sam-${samOpportunity.notice_id}-${Date.now()}.txt`;
@@ -229,6 +278,7 @@ export async function analyzeRFP(
 
   // Discovery-sourced solicitations have no uploaded PDF. Fetch the full
   // notice + attachments from SAM.gov before giving up.
+  let hydrationError: string | null = null;
   if (!rfpText) {
     try {
       const hydrated = await hydrateSourceFromSamGov({
@@ -241,15 +291,17 @@ export async function analyzeRFP(
         rfpText = hydrated.text;
       }
     } catch (error) {
+      hydrationError = error instanceof Error ? error.message : String(error);
       console.error("SAM.gov hydration failed:", error);
     }
   }
 
   if (!rfpText) {
+    if (hydrationError) {
+      throw new Error(`SAM.gov fetch failed — ${hydrationError}`);
+    }
     throw new Error(
-      isSamApiConfigured()
-        ? "Could not fetch any solicitation content from SAM.gov for this notice. Upload the solicitation PDF to continue."
-        : "No extracted text available for this RFP. Upload the solicitation PDF, or set SAM_GOV_API_KEY to fetch automatically."
+      "No extracted text available for this RFP. Upload the solicitation PDF, or set SAM_GOV_API_KEY to fetch automatically."
     );
   }
 
