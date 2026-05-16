@@ -8,16 +8,30 @@ import {
 /**
  * Diagnostic endpoint — reports which integration env vars are present on
  * the running server. Does NOT return any values, only presence booleans
- * and short key prefixes for verification. Workspace-gated.
+ * and short key prefixes for verification. Restricted to workspace
+ * owners/admins because the prefixes still leak partial secret material.
  *
  * Optional `?probe_notice_id=<id>` parameter triggers a live SAM.gov fetch
  * against that notice so you can verify the API path end-to-end from a
- * deployed environment.
+ * deployed environment. The probe reports `success: false` whenever the
+ * underlying SAM endpoints raised (which `fetchNoticeBundle` would
+ * otherwise swallow as empty results).
  */
 export async function GET(request: NextRequest) {
-  const { user } = await getWorkspaceContext();
+  const { user, workspaceId, role } = await getWorkspaceContext();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!workspaceId) {
+    return NextResponse.json({ error: "No active workspace" }, { status: 403 });
+  }
+
+  if (role !== "owner" && role !== "admin") {
+    return NextResponse.json(
+      { error: "Workspace admin or owner role required" },
+      { status: 403 }
+    );
   }
 
   const samKey = process.env.SAM_GOV_API_KEY || process.env.SAM_API_KEY;
@@ -32,13 +46,9 @@ export async function GET(request: NextRequest) {
     sam_gov: {
       configured: Boolean(samKey),
       env_var_name: samKeyName,
-      key_prefix: samKey ? `${samKey.slice(0, 6)}…` : null,
     },
     gemini: {
       configured: Boolean(process.env.GEMINI_API_KEY),
-      key_prefix: process.env.GEMINI_API_KEY
-        ? `${process.env.GEMINI_API_KEY.slice(0, 6)}…`
-        : null,
     },
     perplexity: {
       configured: Boolean(process.env.PERPLEXITY_API_KEY),
@@ -60,9 +70,24 @@ export async function GET(request: NextRequest) {
     } else {
       try {
         const bundle = await fetchNoticeBundle(probeNoticeId);
+        const upstreamErrors = [
+          bundle.descriptionError && `description: ${bundle.descriptionError}`,
+          bundle.resourceListError && `resources: ${bundle.resourceListError}`,
+        ].filter(Boolean) as string[];
+        const hasContent =
+          bundle.description.trim().length > 0 || bundle.attachments.length > 0;
+        const success = upstreamErrors.length === 0 && hasContent;
+
         result.sam_probe = {
           notice_id: probeNoticeId,
-          success: true,
+          success,
+          ...(success
+            ? {}
+            : {
+                error: upstreamErrors.length
+                  ? `Upstream SAM.gov call failed — ${upstreamErrors.join("; ")}`
+                  : "SAM.gov returned an empty bundle (no description, no parsed attachments).",
+              }),
           description_chars: bundle.description.length,
           resources_listed: bundle.resources.length,
           attachments_parsed: bundle.attachments.length,
