@@ -8,11 +8,13 @@ Create `.env.local` with:
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_url_here
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key_here
 AI_MODE=mock
-PERPLEXITY_API_KEY=your_perplexity_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 The same variables are required in Vercel Project Settings for Production, Preview, and Development.
-Use `AI_MODE=mock` for no-cost demos and `AI_MODE=live` when you are ready to call Perplexity.
+Use `AI_MODE=mock` for no-cost demos and `AI_MODE=live` when you are ready to call the live model.
+
+> **AI provider:** development currently routes all AI through Google Gemini. The production target is Perplexity. See [ADR 0001](docs/decisions/0001-gemini-for-development-ai-routing.md).
 
 ## Supabase
 
@@ -20,7 +22,7 @@ Apply the migrations in `supabase/migrations` to initialize the database schema,
 
 ## Mock Testing
 
-When `AI_MODE=mock`, ProposalPilot never calls Perplexity. It returns deterministic fixture analysis, drafting, compliance, discovery, scoring, Sonar research, and embeddings. Use the Workspace page's **Load Demo** button to seed a demo capability statement, mock RFP, requirements, compliance matrix, first draft, and activity logs.
+When `AI_MODE=mock`, ProposalPilot never calls the live AI provider. It returns deterministic fixture analysis, drafting, compliance, discovery, scoring, research, and embeddings. Use the Workspace page's **Load Demo** button to seed a demo capability statement, mock RFP, requirements, compliance matrix, first draft, and activity logs.
 
 Sample files are available in `mock-data/` if you prefer to test the upload flow manually.
 
