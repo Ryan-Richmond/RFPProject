@@ -11,6 +11,7 @@ import {
   DollarSign,
   ExternalLink,
   FileSearch,
+  Info,
   Lightbulb,
   Loader2,
   Shield,
@@ -20,6 +21,7 @@ import {
   Users,
   ArrowLeft,
   ChevronRight,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -116,6 +118,7 @@ export default function OpportunityDetailPage() {
   const [loading, setLoading] = useState(true);
   const [promoting, setPromoting] = useState(false);
   const [enriching, setEnriching] = useState(false);
+  const [showScoreInfo, setShowScoreInfo] = useState(false);
 
   async function fetchOpportunity() {
     try {
@@ -450,10 +453,100 @@ export default function OpportunityDetailPage() {
         {/* Left Column: Score Breakdown */}
         <div className="col-span-5 space-y-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm">Score Breakdown</CardTitle>
+              <button
+                type="button"
+                onClick={() => setShowScoreInfo((prev) => !prev)}
+                aria-expanded={showScoreInfo}
+                aria-label="How are scores calculated?"
+                title="How are scores calculated?"
+                className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Info className="h-4 w-4" />
+              </button>
             </CardHeader>
             <CardContent className="space-y-4">
+              {showScoreInfo && (
+                <div className="relative rounded-lg border bg-muted/40 p-3 text-xs leading-relaxed">
+                  <button
+                    type="button"
+                    onClick={() => setShowScoreInfo(false)}
+                    aria-label="Close"
+                    className="absolute right-2 top-2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                  <p className="pr-5 font-semibold text-foreground">
+                    How the score is calculated
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    Each factor is rated 0–100. The overall score is a weighted
+                    average; recommendation thresholds are{" "}
+                    <span className="font-medium text-success">Pursue ≥ 75</span>
+                    ,{" "}
+                    <span className="font-medium text-warning">
+                      Monitor 50–74
+                    </span>
+                    ,{" "}
+                    <span className="font-medium text-danger">Pass &lt; 50</span>
+                    .
+                  </p>
+
+                  <p className="mt-3 font-semibold text-foreground">
+                    Deterministic factors (always computed)
+                  </p>
+                  <ul className="mt-1 space-y-1 text-muted-foreground">
+                    <li>
+                      <span className="font-medium text-foreground">
+                        NAICS Match — 35%.
+                      </span>{" "}
+                      Overlap between your profile&apos;s NAICS codes and the
+                      opportunity&apos;s.
+                    </li>
+                    <li>
+                      <span className="font-medium text-foreground">
+                        Set-Aside Eligibility — 25%.
+                      </span>{" "}
+                      Whether your certifications satisfy the set-aside (full
+                      score for open competition).
+                    </li>
+                    <li>
+                      <span className="font-medium text-foreground">
+                        Agency / PSC Relevance — 15% + 10%.
+                      </span>{" "}
+                      Past performance with this agency and how closely the PSC
+                      code maps to your capability domains.
+                    </li>
+                    <li>
+                      <span className="font-medium text-foreground">
+                        Timeline Fit — 15%.
+                      </span>{" "}
+                      How much runway remains before the response deadline.
+                    </li>
+                  </ul>
+
+                  <p className="mt-3 font-semibold text-foreground">
+                    AI overlays (after Run Analysis)
+                  </p>
+                  <ul className="mt-1 space-y-1 text-muted-foreground">
+                    <li>
+                      <span className="font-medium text-foreground">
+                        Size Fit, Capability Match, Competition Level.
+                      </span>{" "}
+                      Generated from your profile, Knowledge Base evidence, and
+                      the parsed solicitation. They surface fit risks and feed
+                      the AI rationale and recommendation.
+                    </li>
+                  </ul>
+
+                  <p className="mt-3 text-[11px] text-muted-foreground">
+                    Disqualifying factors (ineligible set-aside, expired
+                    deadline) drive the overall score to 0 regardless of other
+                    factors.
+                  </p>
+                </div>
+              )}
               {score ? (
                 <>
                   <div className="flex items-end justify-between mb-4">
