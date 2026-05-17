@@ -12,6 +12,7 @@ import {
   fetchNoticeBundle,
   isSamApiConfigured,
 } from "@/lib/sam-gov/client";
+import { matchRequirementsToCapabilities } from "@/services/requirement-matcher";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -424,20 +425,7 @@ Return a JSON object with these fields:
     readiness_summary,
   };
 
-  // Save to Supabase
-  await supabase
-    .from("solicitations")
-    .update({
-      status: "analyzed",
-      classification: result.classification,
-      agency: result.agency,
-      solicitation_number: result.solicitationNumber,
-      due_date: result.due_date || null,
-      analysis_result: result as unknown as Record<string, unknown>,
-    })
-    .eq("id", solicitationId);
-
-  // Save extracted requirements
+  // Save extracted requirements first so the matcher can read them.
   await supabase
     .from("extracted_requirements")
     .delete()
@@ -457,6 +445,40 @@ Return a JSON object with these fields:
         matched_evidence_ids: [],
       }))
     );
+
+    // Phase 1 — Requirements Traceability Matrix: embed each requirement,
+    // retrieve top-K capability matches via pgvector, and rate them with an
+    // LLM pass. Non-blocking — analysis still succeeds if matching fails.
+    try {
+      const summary = await matchRequirementsToCapabilities(solicitationId, workspaceId);
+      result.readiness_summary = summary.readiness_counts;
+      // Reflect the recomputed readiness on the in-memory requirements so the
+      // analysis_result JSON stored on the solicitation row stays in sync.
+      const { data: refreshed } = await supabase
+        .from("extracted_requirements")
+        .select("requirement_id, readiness_score, matched_evidence_ids")
+        .eq("solicitation_id", solicitationId);
+      if (refreshed) {
+        const byReqId = new Map(
+          refreshed.map((r) => [
+            r.requirement_id as string,
+            {
+              readiness: r.readiness_score as "green" | "yellow" | "red",
+              evidenceIds: (r.matched_evidence_ids as string[]) || [],
+            },
+          ])
+        );
+        for (const req of result.requirements) {
+          const match = byReqId.get(req.id);
+          if (match) {
+            req.readiness_score = match.readiness;
+            req.matched_evidence_ids = match.evidenceIds;
+          }
+        }
+      }
+    } catch (matchError) {
+      console.error("Requirement matching failed:", matchError);
+    }
   }
 
   // Save compliance matrix entries
@@ -478,6 +500,19 @@ Return a JSON object with these fields:
       }))
     );
   }
+
+  // Persist solicitation last so analysis_result reflects post-match readiness.
+  await supabase
+    .from("solicitations")
+    .update({
+      status: "analyzed",
+      classification: result.classification,
+      agency: result.agency,
+      solicitation_number: result.solicitationNumber,
+      due_date: result.due_date || null,
+      analysis_result: result as unknown as Record<string, unknown>,
+    })
+    .eq("id", solicitationId);
 
   return result;
 }
