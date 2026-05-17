@@ -24,9 +24,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
-type MatchStatus = "suggested" | "confirmed" | "overridden" | "rejected";
-type Confidence = "strong" | "partial" | "weak" | "none";
-type Readiness = "green" | "yellow" | "red";
+export type MatchStatus = "suggested" | "confirmed" | "overridden" | "rejected";
+export type Confidence = "strong" | "partial" | "weak" | "none";
+export type Readiness = "green" | "yellow" | "red";
 
 export interface RequirementMatch {
   id: string;
@@ -62,7 +62,7 @@ export interface MatrixDraftSection {
   requirement_mappings: string[] | null;
 }
 
-interface Props {
+interface MatrixProps {
   proposalId: string;
   requirements: MatrixRequirement[];
   matches: RequirementMatch[];
@@ -93,11 +93,10 @@ export function RequirementsMatrix({
   matches,
   draftSections,
   onRefresh,
-}: Props) {
+}: MatrixProps) {
   const [filter, setFilter] = useState<FilterValue>("all");
   const [search, setSearch] = useState("");
   const [openRequirementId, setOpenRequirementId] = useState<string | null>(null);
-  const [updatingMatchId, setUpdatingMatchId] = useState<string | null>(null);
 
   const matchesByRequirementId = useMemo(() => {
     const map = new Map<string, RequirementMatch[]>();
@@ -123,11 +122,13 @@ export function RequirementsMatrix({
 
   const rows = useMemo(() => {
     return requirements.map((req) => {
-      const reqMatches = (matchesByRequirementId.get(req.id) || []).slice().sort(
-        (a, b) => b.similarity_score - a.similarity_score
-      );
+      const reqMatches = (matchesByRequirementId.get(req.id) || [])
+        .slice()
+        .sort((a, b) => b.similarity_score - a.similarity_score);
       const preferred =
-        reqMatches.find((m) => m.status === "confirmed" || m.status === "overridden") ||
+        reqMatches.find(
+          (m) => m.status === "confirmed" || m.status === "overridden"
+        ) ||
         reqMatches[0] ||
         null;
       const draftSection = sectionTitleByReqRef.get(req.requirement_id) || null;
@@ -167,7 +168,10 @@ export function RequirementsMatrix({
         case "no-match":
           return reqMatches.length === 0;
         case "unconfirmed":
-          return reqMatches.length > 0 && reqMatches.every((m) => m.status === "suggested");
+          return (
+            reqMatches.length > 0 &&
+            reqMatches.every((m) => m.status === "suggested")
+          );
       }
     });
   }, [rows, filter, search]);
@@ -190,10 +194,9 @@ export function RequirementsMatrix({
       ).length,
       noMatch: rows.filter((r) => r.matches.length === 0).length,
       unconfirmed: rows.filter(
-        (r) => r.matches.length > 0 && r.matches.every((m) => m.status === "suggested")
-      ).length,
-      confirmed: rows.filter((r) =>
-        r.matches.some((m) => m.status === "confirmed" || m.status === "overridden")
+        (r) =>
+          r.matches.length > 0 &&
+          r.matches.every((m) => m.status === "suggested")
       ).length,
     };
   }, [rows]);
@@ -201,38 +204,6 @@ export function RequirementsMatrix({
   const openRow = openRequirementId
     ? rows.find((r) => r.req.id === openRequirementId) || null
     : null;
-
-  async function updateMatchStatus(matchId: string, status: MatchStatus) {
-    setUpdatingMatchId(matchId);
-    try {
-      const res = await fetch(
-        `/api/proposals/${proposalId}/requirement-matches/${matchId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
-        }
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to update match");
-      }
-      toast.success(
-        status === "confirmed"
-          ? "Match confirmed"
-          : status === "rejected"
-          ? "Match rejected"
-          : status === "overridden"
-          ? "Override saved"
-          : "Match status updated"
-      );
-      onRefresh();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed");
-    } finally {
-      setUpdatingMatchId(null);
-    }
-  }
 
   return (
     <div className="space-y-4">
@@ -334,10 +305,16 @@ export function RequirementsMatrix({
                     >
                       <td className="px-3 py-2 align-top">
                         <div className="flex flex-col gap-1">
-                          <Badge variant="outline" className="w-fit font-mono text-[11px]">
+                          <Badge
+                            variant="outline"
+                            className="w-fit font-mono text-[11px]"
+                          >
                             {req.requirement_id}
                           </Badge>
-                          <Badge variant="secondary" className="w-fit text-[10px] capitalize">
+                          <Badge
+                            variant="secondary"
+                            className="w-fit text-[10px] capitalize"
+                          >
                             {req.category.replace("_", " ")}
                           </Badge>
                         </div>
@@ -360,7 +337,9 @@ export function RequirementsMatrix({
                             similarity={preferred.similarity_score}
                           />
                         ) : (
-                          <Badge variant="outline" className="text-[10px]">none</Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            none
+                          </Badge>
                         )}
                       </td>
                       <td className="px-3 py-2 align-top text-xs">
@@ -380,164 +359,358 @@ export function RequirementsMatrix({
         </CardContent>
       </Card>
 
-      <Dialog
+      <RequirementDetailDialog
+        proposalId={proposalId}
+        requirement={openRow?.req || null}
+        matches={openRow?.matches || []}
+        draftSectionTitle={openRow?.draftSection || null}
         open={Boolean(openRow)}
         onOpenChange={(open) => {
           if (!open) setOpenRequirementId(null);
         }}
-      >
-        <DialogContent className="max-w-3xl">
-          {openRow ? (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Badge variant="outline" className="font-mono">
-                    {openRow.req.requirement_id}
-                  </Badge>
-                  <Badge variant="secondary" className="capitalize">
-                    {openRow.req.category.replace("_", " ")}
-                  </Badge>
-                  {openRow.req.readiness_score ? (
-                    <ReadinessPill readiness={openRow.req.readiness_score} />
-                  ) : null}
-                </DialogTitle>
-                {openRow.req.section_ref ? (
-                  <DialogDescription>{openRow.req.section_ref}</DialogDescription>
-                ) : null}
-              </DialogHeader>
-
-              <div className="space-y-5">
-                <section>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Requirement
-                  </p>
-                  <p className="mt-1.5 text-sm leading-relaxed">{openRow.req.text}</p>
-                </section>
-
-                <section>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Candidate matches ({openRow.matches.length})
-                  </p>
-                  {openRow.matches.length === 0 ? (
-                    <div className="mt-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
-                      No capability evidence matched. Consider uploading relevant past
-                      performance, or flag this as a gap for a SME response.
-                    </div>
-                  ) : (
-                    <div className="mt-2 space-y-2">
-                      {openRow.matches.map((m) => (
-                        <div
-                          key={m.id}
-                          className="rounded-lg border p-3 text-sm"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <ConfidencePill
-                              confidence={m.llm_confidence}
-                              similarity={m.similarity_score}
-                            />
-                            <StatusBadge status={m.status} />
-                            {m.evidence_chunk?.source_document_name ? (
-                              <Badge variant="outline" className="font-normal">
-                                <ExternalLink className="mr-1 h-3 w-3" />
-                                {m.evidence_chunk.source_document_name}
-                              </Badge>
-                            ) : null}
-                            <Badge variant="secondary" className="capitalize text-[10px]">
-                              {m.evidence_chunk?.category.replace("_", " ") || "—"}
-                            </Badge>
-                          </div>
-                          {m.llm_justification ? (
-                            <p className="mt-2 text-xs italic text-muted-foreground">
-                              {m.llm_justification}
-                            </p>
-                          ) : null}
-                          {m.evidence_chunk?.content ? (
-                            <p className="mt-2 line-clamp-4 text-xs leading-relaxed text-foreground/80">
-                              {m.evidence_chunk.content}
-                            </p>
-                          ) : null}
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              variant={m.status === "confirmed" ? "default" : "outline"}
-                              onClick={() => updateMatchStatus(m.id, "confirmed")}
-                              disabled={updatingMatchId === m.id}
-                            >
-                              {updatingMatchId === m.id ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="h-3 w-3" />
-                              )}
-                              Confirm
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={m.status === "overridden" ? "default" : "outline"}
-                              onClick={() => updateMatchStatus(m.id, "overridden")}
-                              disabled={updatingMatchId === m.id}
-                            >
-                              Override
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant={m.status === "rejected" ? "default" : "outline"}
-                              onClick={() => updateMatchStatus(m.id, "rejected")}
-                              disabled={updatingMatchId === m.id}
-                            >
-                              <XCircle className="h-3 w-3" />
-                              Reject
-                            </Button>
-                            {m.status !== "suggested" ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => updateMatchStatus(m.id, "suggested")}
-                                disabled={updatingMatchId === m.id}
-                              >
-                                Reset
-                              </Button>
-                            ) : null}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                <section>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Draft section
-                  </p>
-                  {openRow.draftSection ? (
-                    <p className="mt-1.5 text-sm">
-                      <span className="font-medium">{openRow.draftSection}</span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        — addresses {openRow.req.requirement_id}
-                      </span>
-                    </p>
-                  ) : (
-                    <p className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
-                      <ShieldQuestion className="h-3.5 w-3.5" />
-                      No draft section currently addresses this requirement.
-                    </p>
-                  )}
-                </section>
-              </div>
-
-              <DialogFooter>
-                <Button
-                  variant="ghost"
-                  onClick={() => setOpenRequirementId(null)}
-                >
-                  Close
-                </Button>
-              </DialogFooter>
-            </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+        onRefresh={onRefresh}
+      />
     </div>
+  );
+}
+
+/**
+ * Reusable dialog showing a single requirement, its candidate matches, and
+ * confirm/override/reject actions. Used by both the Requirements Matrix tab
+ * and the Analysis tab (where clicking a REQ card opens this dialog).
+ */
+export function RequirementDetailDialog({
+  proposalId,
+  requirement,
+  matches,
+  draftSectionTitle,
+  open,
+  onOpenChange,
+  onRefresh,
+}: {
+  proposalId: string;
+  requirement: MatrixRequirement | null;
+  matches: RequirementMatch[];
+  draftSectionTitle: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRefresh: () => void;
+}) {
+  const [updatingMatchId, setUpdatingMatchId] = useState<string | null>(null);
+
+  async function updateMatchStatus(matchId: string, status: MatchStatus) {
+    setUpdatingMatchId(matchId);
+    try {
+      const res = await fetch(
+        `/api/proposals/${proposalId}/requirement-matches/${matchId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to update match");
+      }
+      toast.success(
+        status === "confirmed"
+          ? "Match confirmed"
+          : status === "rejected"
+          ? "Match rejected"
+          : status === "overridden"
+          ? "Override saved"
+          : "Match status updated"
+      );
+      onRefresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed");
+    } finally {
+      setUpdatingMatchId(null);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        {requirement ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Badge variant="outline" className="font-mono">
+                  {requirement.requirement_id}
+                </Badge>
+                <Badge variant="secondary" className="capitalize">
+                  {requirement.category.replace("_", " ")}
+                </Badge>
+                {requirement.readiness_score ? (
+                  <ReadinessPill readiness={requirement.readiness_score} />
+                ) : null}
+              </DialogTitle>
+              {requirement.section_ref ? (
+                <DialogDescription>{requirement.section_ref}</DialogDescription>
+              ) : null}
+            </DialogHeader>
+
+            <div className="space-y-5">
+              <section>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Requirement
+                </p>
+                <p className="mt-1.5 text-sm leading-relaxed">{requirement.text}</p>
+              </section>
+
+              <section>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Candidate matches ({matches.length})
+                </p>
+                {matches.length === 0 ? (
+                  <div className="mt-2 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                    No capability evidence matched. Consider uploading relevant past
+                    performance, or flag this as a gap for a SME response.
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {matches.map((m) => (
+                      <div key={m.id} className="rounded-lg border p-3 text-sm">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <ConfidencePill
+                            confidence={m.llm_confidence}
+                            similarity={m.similarity_score}
+                          />
+                          <StatusBadge status={m.status} />
+                          {m.evidence_chunk?.source_document_name ? (
+                            <Badge variant="outline" className="font-normal">
+                              <ExternalLink className="mr-1 h-3 w-3" />
+                              {m.evidence_chunk.source_document_name}
+                            </Badge>
+                          ) : null}
+                          <Badge
+                            variant="secondary"
+                            className="capitalize text-[10px]"
+                          >
+                            {m.evidence_chunk?.category.replace("_", " ") || "—"}
+                          </Badge>
+                        </div>
+                        {m.llm_justification ? (
+                          <p className="mt-2 text-xs italic text-muted-foreground">
+                            {m.llm_justification}
+                          </p>
+                        ) : null}
+                        {m.evidence_chunk?.content ? (
+                          <p className="mt-2 line-clamp-4 text-xs leading-relaxed text-foreground/80">
+                            {m.evidence_chunk.content}
+                          </p>
+                        ) : null}
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant={m.status === "confirmed" ? "default" : "outline"}
+                            onClick={() => updateMatchStatus(m.id, "confirmed")}
+                            disabled={updatingMatchId === m.id}
+                          >
+                            {updatingMatchId === m.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-3 w-3" />
+                            )}
+                            Confirm
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={m.status === "overridden" ? "default" : "outline"}
+                            onClick={() => updateMatchStatus(m.id, "overridden")}
+                            disabled={updatingMatchId === m.id}
+                          >
+                            Override
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={m.status === "rejected" ? "default" : "outline"}
+                            onClick={() => updateMatchStatus(m.id, "rejected")}
+                            disabled={updatingMatchId === m.id}
+                          >
+                            <XCircle className="h-3 w-3" />
+                            Reject
+                          </Button>
+                          {m.status !== "suggested" ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => updateMatchStatus(m.id, "suggested")}
+                              disabled={updatingMatchId === m.id}
+                            >
+                              Reset
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Draft section
+                </p>
+                {draftSectionTitle ? (
+                  <p className="mt-1.5 text-sm">
+                    <span className="font-medium">{draftSectionTitle}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      — addresses {requirement.requirement_id}
+                    </span>
+                  </p>
+                ) : (
+                  <p className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
+                    <ShieldQuestion className="h-3.5 w-3.5" />
+                    No draft section currently addresses this requirement.
+                  </p>
+                )}
+              </section>
+            </div>
+
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Dialog for a Compliance Matrix entry: shows the full instruction +
+ * evaluation text, and each mapped requirement (by REQ ID) with its readiness
+ * and top match status. Clicking a mapped requirement closes this dialog and
+ * opens the requirement detail dialog instead.
+ */
+export function ComplianceDetailDialog({
+  entry,
+  requirementsById,
+  matchesByRequirementId,
+  open,
+  onOpenChange,
+  onOpenRequirement,
+}: {
+  entry: {
+    instruction_ref: string;
+    instruction_text: string;
+    evaluation_ref?: string | null;
+    evaluation_text?: string | null;
+    mapped_requirements?: string[] | null;
+  } | null;
+  requirementsById: Map<string, MatrixRequirement>;
+  matchesByRequirementId: Map<string, RequirementMatch[]>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onOpenRequirement: (requirementInternalId: string) => void;
+}) {
+  if (!entry) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent />
+      </Dialog>
+    );
+  }
+
+  const mappedReqs = (entry.mapped_requirements || [])
+    .map((reqRef) => {
+      // mapped_requirements stores requirement_id strings like "REQ-001".
+      // Look up the internal record via a scan of requirementsById values.
+      for (const r of requirementsById.values()) {
+        if (r.requirement_id === reqRef) return r;
+      }
+      return null;
+    })
+    .filter((r): r is MatrixRequirement => r !== null);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">{entry.instruction_ref}</Badge>
+            {entry.evaluation_ref ? (
+              <Badge variant="secondary">{entry.evaluation_ref}</Badge>
+            ) : null}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <section>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Instruction
+            </p>
+            <p className="mt-1.5 text-sm leading-relaxed">{entry.instruction_text}</p>
+          </section>
+
+          {entry.evaluation_text ? (
+            <section>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Evaluation
+              </p>
+              <p className="mt-1.5 text-sm leading-relaxed">{entry.evaluation_text}</p>
+            </section>
+          ) : null}
+
+          <section>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Mapped requirements ({mappedReqs.length})
+            </p>
+            {mappedReqs.length === 0 ? (
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                No requirements mapped to this entry.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {mappedReqs.map((req) => {
+                  const reqMatches = (matchesByRequirementId.get(req.id) || [])
+                    .slice()
+                    .sort((a, b) => b.similarity_score - a.similarity_score);
+                  const preferred =
+                    reqMatches.find(
+                      (m) => m.status === "confirmed" || m.status === "overridden"
+                    ) ||
+                    reqMatches[0] ||
+                    null;
+                  return (
+                    <button
+                      key={req.id}
+                      type="button"
+                      className="flex w-full items-start gap-3 rounded-lg border p-2.5 text-left text-sm transition hover:bg-muted/40"
+                      onClick={() => {
+                        onOpenChange(false);
+                        onOpenRequirement(req.id);
+                      }}
+                    >
+                      <Badge variant="outline" className="font-mono text-[11px]">
+                        {req.requirement_id}
+                      </Badge>
+                      <span className="flex-1 line-clamp-1 text-xs">{req.text}</span>
+                      {req.readiness_score ? (
+                        <ReadinessPill readiness={req.readiness_score} />
+                      ) : null}
+                      <StatusBadge status={preferred?.status || null} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

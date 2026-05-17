@@ -23,7 +23,13 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PipelineStepper } from "@/components/features/pipeline-stepper";
-import { RequirementsMatrix } from "@/components/features/requirements-matrix";
+import {
+  RequirementsMatrix,
+  RequirementDetailDialog,
+  ComplianceDetailDialog,
+  type MatrixRequirement,
+  type RequirementMatch as MatrixRequirementMatch,
+} from "@/components/features/requirements-matrix";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -189,6 +195,7 @@ interface ProposalDetail {
     instruction_text: string;
     evaluation_ref?: string | null;
     evaluation_text?: string | null;
+    mapped_requirements?: string[] | null;
   }>;
   outline_sections: ProposalOutlineSection[];
   solicitations: {
@@ -473,6 +480,8 @@ export default function ProposalDetailPage() {
   const [draftWarning, setDraftWarning] = useState<string | null>(null);
   const [uploadingRfp, setUploadingRfp] = useState(false);
   const rfpFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [openReqInternalId, setOpenReqInternalId] = useState<string | null>(null);
+  const [openComplianceEntryId, setOpenComplianceEntryId] = useState<string | null>(null);
   const [outcomeForm, setOutcomeForm] = useState({
     outcome: "pending" as "won" | "lost" | "pending" | "no_bid",
     contractValue: "",
@@ -677,6 +686,52 @@ export default function ProposalDetailPage() {
       items: (proposal?.proposal_action_items || []).filter((item) => item.status === status),
     }));
   }, [proposal]);
+
+  const matrixRequirementsById = useMemo(() => {
+    const map = new Map<string, MatrixRequirement>();
+    for (const r of proposal?.requirements || []) {
+      map.set(r.id, r as MatrixRequirement);
+    }
+    return map;
+  }, [proposal]);
+
+  const matchesByRequirementId = useMemo(() => {
+    const map = new Map<string, MatrixRequirementMatch[]>();
+    for (const m of proposal?.requirement_matches || []) {
+      const list = map.get(m.requirement_id) || [];
+      list.push(m as MatrixRequirementMatch);
+      map.set(m.requirement_id, list);
+    }
+    return map;
+  }, [proposal]);
+
+  const draftSectionTitleByReqRef = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const section of proposal?.proposal_sections || []) {
+      for (const reqRef of section.requirement_mappings || []) {
+        if (!map.has(reqRef)) {
+          map.set(reqRef, section.title);
+        }
+      }
+    }
+    return map;
+  }, [proposal]);
+
+  const openRequirement = openReqInternalId
+    ? matrixRequirementsById.get(openReqInternalId) || null
+    : null;
+  const openRequirementMatches = openRequirement
+    ? (matchesByRequirementId.get(openRequirement.id) || [])
+        .slice()
+        .sort((a, b) => b.similarity_score - a.similarity_score)
+    : [];
+  const openRequirementDraftSection = openRequirement
+    ? draftSectionTitleByReqRef.get(openRequirement.requirement_id) || null
+    : null;
+
+  const openComplianceEntry = openComplianceEntryId
+    ? proposal?.compliance_matrix.find((e) => e.id === openComplianceEntryId) || null
+    : null;
 
   async function attachRfpFile(file: File) {
     if (!proposal) return;
@@ -1836,7 +1891,12 @@ export default function ProposalDetailPage() {
                   </div>
                 ) : (
                   proposal.requirements.map((requirement) => (
-                    <div key={requirement.id} className="rounded-lg border p-3">
+                    <button
+                      key={requirement.id}
+                      type="button"
+                      onClick={() => setOpenReqInternalId(requirement.id)}
+                      className="w-full rounded-lg border p-3 text-left transition hover:border-primary/40 hover:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <Badge variant="outline" className="font-mono text-xs">
@@ -1868,7 +1928,10 @@ export default function ProposalDetailPage() {
                           {requirement.section_ref}
                         </p>
                       ) : null}
-                    </div>
+                      <p className="mt-2 text-[11px] text-muted-foreground/80">
+                        Click to view matches and draft mapping →
+                      </p>
+                    </button>
                   ))
                 )}
               </CardContent>
@@ -1886,11 +1949,22 @@ export default function ProposalDetailPage() {
                 </p>
               ) : (
                 proposal.compliance_matrix.map((entry) => (
-                  <div key={entry.id} className="rounded-lg border p-3">
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => setOpenComplianceEntryId(entry.id)}
+                    className="w-full rounded-lg border p-3 text-left transition hover:border-primary/40 hover:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline">{entry.instruction_ref}</Badge>
                       {entry.evaluation_ref ? (
                         <Badge variant="secondary">{entry.evaluation_ref}</Badge>
+                      ) : null}
+                      {entry.mapped_requirements && entry.mapped_requirements.length > 0 ? (
+                        <Badge variant="secondary" className="text-[10px]">
+                          {entry.mapped_requirements.length} requirement
+                          {entry.mapped_requirements.length === 1 ? "" : "s"}
+                        </Badge>
                       ) : null}
                     </div>
                     <p className="mt-2 text-sm">{entry.instruction_text}</p>
@@ -1899,7 +1973,10 @@ export default function ProposalDetailPage() {
                         {entry.evaluation_text}
                       </p>
                     ) : null}
-                  </div>
+                    <p className="mt-2 text-[11px] text-muted-foreground/80">
+                      Click to view mapped requirements →
+                    </p>
+                  </button>
                 ))
               )}
             </CardContent>
@@ -2823,6 +2900,31 @@ export default function ProposalDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <RequirementDetailDialog
+        proposalId={proposal.id}
+        requirement={openRequirement}
+        matches={openRequirementMatches}
+        draftSectionTitle={openRequirementDraftSection}
+        open={Boolean(openRequirement)}
+        onOpenChange={(open) => {
+          if (!open) setOpenReqInternalId(null);
+        }}
+        onRefresh={fetchProposal}
+      />
+
+      <ComplianceDetailDialog
+        entry={openComplianceEntry}
+        requirementsById={matrixRequirementsById}
+        matchesByRequirementId={matchesByRequirementId}
+        open={Boolean(openComplianceEntry)}
+        onOpenChange={(open) => {
+          if (!open) setOpenComplianceEntryId(null);
+        }}
+        onOpenRequirement={(requirementInternalId) => {
+          setOpenReqInternalId(requirementInternalId);
+        }}
+      />
     </div>
   );
 }
