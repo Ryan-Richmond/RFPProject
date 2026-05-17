@@ -685,6 +685,25 @@ Return JSON:
 
   if (updateError) throw updateError;
 
+  // Keep proposal_drafts.total_word_count in sync — the proposals list and
+  // dashboard read this aggregate, so a single-section regen must refresh it
+  // or users see stale totals until a full draft regenerate.
+  const { data: allSections } = await supabase
+    .from("proposal_sections")
+    .select("word_count")
+    .eq("proposal_draft_id", proposalId)
+    .eq("workspace_id", workspaceId);
+
+  const newTotalWordCount = ((allSections || []) as Array<{
+    word_count: number | null;
+  }>).reduce((sum, row) => sum + (row.word_count || 0), 0);
+
+  await supabase
+    .from("proposal_drafts")
+    .update({ total_word_count: newTotalWordCount })
+    .eq("id", proposalId)
+    .eq("workspace_id", workspaceId);
+
   // Replace citations
   await supabase
     .from("citations")
