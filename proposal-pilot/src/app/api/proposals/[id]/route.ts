@@ -134,6 +134,83 @@ export async function GET(
         .order("created_at", { ascending: false }),
     ]);
 
+    // Requirement → capability matches (Phase 1 data; Phase 2 matrix UI).
+    const requirementIds = (requirements || []).map(
+      (r: { id: string }) => r.id
+    );
+
+    type MatchRow = {
+      id: string;
+      requirement_id: string;
+      evidence_chunk_id: string;
+      similarity_score: number;
+      llm_confidence: "strong" | "partial" | "weak" | "none" | null;
+      llm_justification: string | null;
+      status: "suggested" | "confirmed" | "overridden" | "rejected";
+      updated_at: string;
+      evidence_chunks: {
+        id: string;
+        content: string;
+        category: string;
+        source_document_id: string | null;
+      } | null;
+    };
+
+    let matchRows: MatchRow[] = [];
+    if (requirementIds.length > 0) {
+      const { data: rawMatches } = await supabase
+        .from("requirement_capability_matches")
+        .select(
+          `id, requirement_id, evidence_chunk_id, similarity_score,
+           llm_confidence, llm_justification, status, updated_at,
+           evidence_chunks ( id, content, category, source_document_id )`
+        )
+        .in("requirement_id", requirementIds)
+        .order("similarity_score", { ascending: false });
+      matchRows = (rawMatches || []) as unknown as MatchRow[];
+    }
+
+    const docIds = Array.from(
+      new Set(
+        matchRows
+          .map((m) => m.evidence_chunks?.source_document_id)
+          .filter((d): d is string => typeof d === "string" && d.length > 0)
+      )
+    );
+    const docNameById = new Map<string, string>();
+    if (docIds.length > 0) {
+      const { data: docs } = await supabase
+        .from("source_documents")
+        .select("id, filename")
+        .in("id", docIds);
+      for (const doc of docs || []) {
+        if (doc?.id && doc?.filename) {
+          docNameById.set(doc.id as string, doc.filename as string);
+        }
+      }
+    }
+
+    const requirement_matches = matchRows.map((m) => ({
+      id: m.id,
+      requirement_id: m.requirement_id,
+      evidence_chunk_id: m.evidence_chunk_id,
+      similarity_score: m.similarity_score,
+      llm_confidence: m.llm_confidence,
+      llm_justification: m.llm_justification,
+      status: m.status,
+      updated_at: m.updated_at,
+      evidence_chunk: m.evidence_chunks
+        ? {
+            id: m.evidence_chunks.id,
+            content: m.evidence_chunks.content,
+            category: m.evidence_chunks.category,
+            source_document_name: m.evidence_chunks.source_document_id
+              ? docNameById.get(m.evidence_chunks.source_document_id) || null
+              : null,
+          }
+        : null,
+    }));
+
     const revisionsBySection = ((revisions || []) as ProposalSectionRevisionSummary[]).reduce<
       Record<string, ProposalSectionRevisionSummary[]>
     >((acc, revision) => {
@@ -178,6 +255,7 @@ export async function GET(
       outline_sections: outlineSections || [],
       requirements: requirements || [],
       compliance_matrix: complianceMatrix || [],
+      requirement_matches,
     });
   } catch (error) {
     console.error("Proposal detail error:", error);

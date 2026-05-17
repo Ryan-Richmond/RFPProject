@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PipelineStepper } from "@/components/features/pipeline-stepper";
+import { RequirementsMatrix } from "@/components/features/requirements-matrix";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -154,6 +155,23 @@ interface ProposalOutcomeRecord {
   notes?: string | null;
 }
 
+interface ProposalRequirementMatch {
+  id: string;
+  requirement_id: string;
+  evidence_chunk_id: string;
+  similarity_score: number;
+  llm_confidence: "strong" | "partial" | "weak" | "none" | null;
+  llm_justification: string | null;
+  status: "suggested" | "confirmed" | "overridden" | "rejected";
+  updated_at: string;
+  evidence_chunk: {
+    id: string;
+    content: string;
+    category: string;
+    source_document_name: string | null;
+  } | null;
+}
+
 interface ProposalDetail {
   id: string;
   version?: number | null;
@@ -164,6 +182,7 @@ interface ProposalDetail {
   section_revisions?: ProposalSectionRevision[];
   proposal_outcome?: ProposalOutcomeRecord | null;
   requirements: ProposalRequirement[];
+  requirement_matches?: ProposalRequirementMatch[];
   compliance_matrix: Array<{
     id: string;
     instruction_ref: string;
@@ -1668,6 +1687,7 @@ export default function ProposalDetailPage() {
       <Tabs defaultValue="analysis" className="space-y-4">
         <TabsList>
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
+          <TabsTrigger value="requirements">Requirements</TabsTrigger>
           <TabsTrigger value="outline">Outline</TabsTrigger>
           <TabsTrigger value="draft">Draft</TabsTrigger>
           <TabsTrigger value="compliance">Compliance</TabsTrigger>
@@ -1886,7 +1906,20 @@ export default function ProposalDetailPage() {
           </Card>
         </TabsContent>
 
-
+        <TabsContent value="requirements" className="space-y-4">
+          <RequirementsMatrix
+            proposalId={proposal.id}
+            requirements={proposal.requirements}
+            matches={proposal.requirement_matches || []}
+            draftSections={proposal.proposal_sections.map((section) => ({
+              id: section.id,
+              title: section.title,
+              content: section.content,
+              requirement_mappings: section.requirement_mappings || null,
+            }))}
+            onRefresh={fetchProposal}
+          />
+        </TabsContent>
 
         <TabsContent value="outline" className="space-y-4">
           <Card>
