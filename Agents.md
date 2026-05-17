@@ -2,7 +2,11 @@
 
 ProposalPilot's core intelligence is delivered through four focused service modules that communicate via structured JSON. Each module handles a distinct stage of the proposal workflow.
 
-All AI operations route through Perplexity's APIs. The Agent API is the orchestration layer, Sonar API provides web-grounded Q&A, and the Embeddings API handles vector storage. A single PERPLEXITY_API_KEY covers all three API surfaces.
+**AI routing — current state:** All AI operations run on Google Gemini (`gemini-flash-latest` + `gemini-embedding-001` @ 1024 dims) via a single `GEMINI_API_KEY`. See [`proposal-pilot/docs/decisions/0001-gemini-for-development-ai-routing.md`](proposal-pilot/docs/decisions/0001-gemini-for-development-ai-routing.md) for the rationale.
+
+**AI routing — production target:** Perplexity-native — Agent API as orchestration, Sonar API for web-grounded Q&A, Embeddings API for vector storage, single `PERPLEXITY_API_KEY`. The model assignments throughout this document describe the production target; in development they all collapse to Gemini.
+
+For all architecture decisions and their current status, see [`proposal-pilot/docs/decisions/`](proposal-pilot/docs/decisions/README.md).
 
 ---
 
@@ -297,6 +301,8 @@ User: Upload RFP
 ```
 
 ## AI API Usage Pattern
+
+> **Current dev environment:** every row below runs on `gemini-flash-latest` (chat) or `gemini-embedding-001` @ 1024 dims (embeddings). The table describes the production target. See [ADR 0001](proposal-pilot/docs/decisions/0001-gemini-for-development-ai-routing.md).
 
 | Operation | API | Model | Why |
 |-----------|-----|-------|-----|
