@@ -530,6 +530,7 @@ export async function estimateWinProbability(
     .from("solicitations")
     .select("*")
     .eq("id", solicitationId)
+    .eq("workspace_id", workspaceId)
     .single();
 
   if (!solicitation) throw new Error(`Solicitation ${solicitationId} not found`);
@@ -621,7 +622,8 @@ Return JSON:
         bid_decision_recommendation: result.recommendedBidDecision,
       },
     })
-    .eq("id", solicitationId);
+    .eq("id", solicitationId)
+    .eq("workspace_id", workspaceId);
 
   return result;
 }

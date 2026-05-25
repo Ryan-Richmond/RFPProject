@@ -71,6 +71,7 @@ export function celebrate(opts: CelebrateOptions = {}): void {
       transform: translate(0, 0) rotate(${rotateStart}deg);
       animation: pp-confetti-fall ${fallDuration}ms cubic-bezier(0.3, 0.7, 0.4, 1) ${delay}ms forwards;
       --pp-confetti-drift: ${drift}px;
+      --pp-confetti-rotate-start: ${rotateStart}deg;
       --pp-confetti-rotate-end: ${rotateEnd}deg;
     `;
 

@@ -41,8 +41,26 @@ CREATE INDEX IF NOT EXISTS idx_proposal_action_items_outline
 
 ALTER TABLE public.proposal_action_items ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "proposal_action_items_all" ON public.proposal_action_items
-  FOR ALL USING (public.is_workspace_member(workspace_id));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'proposal_action_items'
+      AND policyname = 'proposal_action_items_all'
+  ) THEN
+    CREATE POLICY "proposal_action_items_all" ON public.proposal_action_items
+      FOR ALL USING (public.is_workspace_member(workspace_id));
+  END IF;
+END $$;
 
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.proposal_action_items
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'set_updated_at'
+      AND tgrelid = 'public.proposal_action_items'::regclass
+  ) THEN
+    CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.proposal_action_items
+      FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  END IF;
+END $$;
