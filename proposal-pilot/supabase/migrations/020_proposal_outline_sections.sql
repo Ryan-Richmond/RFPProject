@@ -45,8 +45,26 @@ CREATE INDEX IF NOT EXISTS idx_proposal_outline_sections_requirements
 
 ALTER TABLE public.proposal_outline_sections ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "proposal_outline_sections_all" ON public.proposal_outline_sections
-  FOR ALL USING (public.is_workspace_member(workspace_id));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'proposal_outline_sections'
+      AND policyname = 'proposal_outline_sections_all'
+  ) THEN
+    CREATE POLICY "proposal_outline_sections_all" ON public.proposal_outline_sections
+      FOR ALL USING (public.is_workspace_member(workspace_id));
+  END IF;
+END $$;
 
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.proposal_outline_sections
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'set_updated_at'
+      AND tgrelid = 'public.proposal_outline_sections'::regclass
+  ) THEN
+    CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.proposal_outline_sections
+      FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  END IF;
+END $$;

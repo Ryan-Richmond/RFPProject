@@ -1,8 +1,8 @@
 -- ============================================
 -- ProposalPilot Migration 023: Ensure outline + action item tables exist
--- Migrations 020-022 were committed directly to main and bypassed the
--- Supabase bot, so the tables may not exist in production. This migration
--- is fully idempotent (IF NOT EXISTS / IF NOT EXISTS guards throughout).
+-- Some environments may already have the 020-022 objects from an out-of-band
+-- deploy while others only have migration history. This migration is fully
+-- idempotent (IF NOT EXISTS / policy / trigger guards throughout).
 -- ============================================
 
 -- 020: Annotated Proposal Outlines

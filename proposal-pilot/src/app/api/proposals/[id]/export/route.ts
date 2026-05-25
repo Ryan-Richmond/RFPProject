@@ -77,13 +77,21 @@ type ExportActionItem = {
   due_at?: string | null;
 };
 
-function stripAnnotations(content: string): string {
-  return content
-    .replace(/\[Evidence:[^\]]+\]/g, "")
-    .replace(/\[Addresses:[^\]]+\]/g, "")
-    .replace(/\[PLACEHOLDER:[^\]]+\]/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+function stripAnnotations(
+  content: string,
+  options: { stripPlaceholders?: boolean } = {}
+): string {
+  let cleaned = content
+    .replace(/\[\s*Evidence\s*[:#][^\]]+\]/gi, "")
+    .replace(/\[\s*Addresses\s*:[^\]]+\]/gi, "")
+    .replace(/\[[^\]]*§[^\]]*\]/g, "")
+    .replace(/\s{2,}/g, " ");
+
+  if (options.stripPlaceholders) {
+    cleaned = cleaned.replace(/\[PLACEHOLDER:[^\]]+\]/g, "");
+  }
+
+  return cleaned.replace(/\s{2,}/g, " ").trim();
 }
 
 function toParagraphs(content: string): Paragraph[] {
