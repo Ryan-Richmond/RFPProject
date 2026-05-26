@@ -57,7 +57,9 @@ interface ReadinessItem {
   group: "minimum" | "high_impact" | "advanced";
   why: string;
   ready: boolean;
+  stale: boolean;
   matchedCount: number;
+  freshCount: number;
   neededForCurrentRfp?: boolean;
 }
 
@@ -249,13 +251,13 @@ export default function KnowledgeBasePage() {
                 ) : null}
               </div>
               <Badge variant={item.ready ? "default" : "outline"}>
-                {item.ready ? "Ready" : "Missing"}
+                {item.ready ? "Ready" : item.stale ? "Stale" : "Missing"}
               </Badge>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">{item.why}</p>
             {item.matchedCount > 0 ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                {item.matchedCount} verified evidence chunks matched
+                {item.freshCount}/{item.matchedCount} verified evidence chunks current
               </p>
             ) : null}
           </div>
