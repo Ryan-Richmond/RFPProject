@@ -370,6 +370,100 @@ function buildWinProbabilityResponse() {
   };
 }
 
+function buildPublicResearchResponse() {
+  return {
+    summary:
+      "Northstar Digital Services is a mock federal IT services firm focused on cloud modernization, cybersecurity, and data analytics for civilian and defense agencies.",
+    confidence: "medium",
+    suggestions: {
+      business_description:
+        "Northstar Digital Services delivers secure cloud modernization, DevSecOps, cybersecurity, and data analytics services for federal mission systems.",
+      naics_codes: [
+        {
+          code: "541512",
+          label: "Computer Systems Design Services",
+          rationale: "Public profile indicates systems modernization and cloud engineering.",
+        },
+        {
+          code: "541519",
+          label: "Other Computer Related Services",
+          rationale: "Public profile indicates cybersecurity and IT support services.",
+        },
+      ],
+      core_capabilities: [
+        { value: "Cloud Migration", rationale: "Core public capability." },
+        { value: "Cybersecurity", rationale: "Core public capability." },
+        { value: "DevSecOps", rationale: "Core public capability." },
+      ],
+      certifications: [{ value: "Small Business", rationale: "Mock public profile." }],
+      preferred_agencies: [
+        { value: "Department of Defense", rationale: "Mock award history." },
+        { value: "General Services Administration", rationale: "Mock award history." },
+      ],
+      past_contract_vehicles: [{ value: "GSA MAS", rationale: "Mock public profile." }],
+      public_awards: [
+        {
+          title: "Mock Army Training Systems Modernization",
+          agency: "U.S. Army",
+          value: "$6.8M",
+          period: "2025",
+          source: "https://sam.gov/opp/mock-cyber-modernization",
+        },
+      ],
+    },
+  };
+}
+
+function buildLegacyProposalSectionsResponse() {
+  return [
+    {
+      artifact_type: "capability_statement",
+      artifact_title: "Company Overview and Differentiators",
+      category: "corporate_overview",
+      confidence: "high",
+      content:
+        "Northstar Digital Services delivers secure cloud modernization, cybersecurity, DevSecOps, and data analytics for federal mission owners.",
+      keywords: ["cloud", "cybersecurity", "DevSecOps"],
+    },
+    {
+      artifact_type: "past_performance",
+      artifact_title: "Army Training Systems Modernization",
+      category: "past_performance",
+      confidence: "high",
+      content:
+        "In 2025, Northstar supported a mock Army task order valued at $6.8M, migrating three applications and reducing critical vulnerabilities by 41 percent.",
+      keywords: ["past performance", "Army", "cloud"],
+    },
+    {
+      artifact_type: "key_personnel",
+      artifact_title: "Key Personnel Summary",
+      category: "key_personnel",
+      confidence: "medium",
+      content:
+        "The program team includes a PMP program manager, cloud architect, security lead, and delivery lead with federal modernization experience.",
+      keywords: ["personnel", "staffing"],
+    },
+    {
+      artifact_type: "certifications",
+      artifact_title: "Certifications and Eligibility",
+      category: "certifications",
+      confidence: "medium",
+      content:
+        "Northstar maintains active SAM registration and small-business eligibility in the mock profile.",
+      keywords: ["SAM", "small business"],
+    },
+    {
+      artifact_type: "management",
+      artifact_title: "Management Approach",
+      category: "management",
+      confidence: "high",
+      content:
+        "Northstar uses weekly sprint reviews, risk burndown, integrated schedules, and clear escalation paths to maintain delivery accountability.",
+      keywords: ["management", "risk", "governance"],
+    },
+  ];
+}
+
 export function isAIMockMode() {
   return process.env.AI_MODE === "mock" || process.env.NEXT_PUBLIC_AI_MODE === "mock";
 }
@@ -384,6 +478,10 @@ export function getMockAgentResponse(
 
   if (input.includes("Search for active government RFP opportunities")) {
     payload = buildDiscoveryResponse();
+  } else if (input.includes("Research this government contractor")) {
+    payload = buildPublicResearchResponse();
+  } else if (input.includes("Extract reusable proposal evidence sections")) {
+    payload = buildLegacyProposalSectionsResponse();
   } else if (input.includes("Score this government contracting opportunity")) {
     payload = buildScoreResponse();
   } else if (input.includes("estimate the win probability")) {

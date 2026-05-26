@@ -672,6 +672,30 @@ export default function ProposalDetailPage() {
     };
   }, [proposal]);
 
+  const rfpGapSummary = useMemo(() => {
+    if (!proposal || proposal.requirements.length === 0) {
+      return null;
+    }
+
+    const gaps = proposal.requirements.filter(
+      (requirement) =>
+        requirement.readiness_score === "red" ||
+        requirement.readiness_score === "yellow"
+    );
+    if (gaps.length === 0) return null;
+
+    const red = gaps.filter((requirement) => requirement.readiness_score === "red").length;
+    const yellow = gaps.filter((requirement) => requirement.readiness_score === "yellow").length;
+    const categories = Array.from(new Set(gaps.map((requirement) => requirement.category).filter(Boolean)));
+
+    return {
+      red,
+      yellow,
+      categories,
+      topRequirements: gaps.slice(0, 4),
+    };
+  }, [proposal]);
+
   const actionItemsByStatus = useMemo(() => {
     const statuses: ProposalActionItem["status"][] = [
       "open",
@@ -1706,6 +1730,68 @@ export default function ProposalDetailPage() {
       </div>
 
       <PipelineStepper stages={pipelineStages} />
+
+      {rfpGapSummary ? (
+        <Card className="border-warning/30 bg-warning/5">
+          <CardContent className="flex flex-col gap-4 py-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-warning" />
+                <p className="text-sm font-semibold">This RFP needs stronger evidence</p>
+                <Badge variant="outline">{rfpGapSummary.red} red</Badge>
+                <Badge variant="outline">{rfpGapSummary.yellow} yellow</Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Drafting is still allowed, but uncovered requirements will produce lower-confidence sections and explicit placeholders until verified evidence is added.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {rfpGapSummary.categories.map((category) => (
+                  <Badge key={category} variant="secondary">
+                    {category.replace(/_/g, " ")}
+                  </Badge>
+                ))}
+              </div>
+              <div className="mt-3 space-y-2">
+                {rfpGapSummary.topRequirements.map((requirement) => (
+                  <div key={requirement.id} className="rounded-md border bg-background/70 px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <Badge variant="outline">{requirement.requirement_id}</Badge>
+                      {requirement.section_ref ? (
+                        <span className="text-muted-foreground">{requirement.section_ref}</span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-foreground/90">
+                      {requirement.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2 lg:flex-col">
+              <Link href="/knowledge-base">
+                <Button size="sm" className="gap-2">
+                  <Upload className="h-4 w-4" />
+                  Upload Evidence
+                </Button>
+              </Link>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={syncActionItems}
+                disabled={syncingActionItems || proposal.proposal_sections.length === 0}
+                className="gap-2"
+              >
+                {syncingActionItems ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Target className="h-4 w-4" />
+                )}
+                Create Actions
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {exportReadiness ? (
         <Card>

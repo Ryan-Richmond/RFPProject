@@ -48,6 +48,30 @@ export interface EvidenceChunk {
   embedding?: number[];
 }
 
+type EvidenceCategory = EvidenceChunk["category"];
+
+interface LegacyProposalArtifact {
+  artifact_type: string;
+  artifact_title?: string;
+  category: EvidenceCategory;
+  confidence?: "high" | "medium" | "low";
+  content: string;
+  keywords?: string[];
+  naics_codes?: string[];
+  agency?: string | null;
+  contract_type?: string | null;
+  date?: string | null;
+}
+
+const VALID_CATEGORIES = new Set<EvidenceCategory>([
+  "past_performance",
+  "technical_approach",
+  "key_personnel",
+  "corporate_overview",
+  "certifications",
+  "management",
+]);
+
 // ---- Chunking Utility ----
 
 function chunkText(text: string, chunkSize: number = 500, overlap: number = 50): string[] {
@@ -62,6 +86,105 @@ function chunkText(text: string, chunkSize: number = 500, overlap: number = 50):
   }
 
   return chunks;
+}
+
+function safeJsonExtract(text: string): unknown {
+  const cleaned = text.replace(/```json?/gi, "").replace(/```/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\[[\s\S]*\]/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function defaultArtifactType(category: EvidenceCategory) {
+  switch (category) {
+    case "corporate_overview":
+      return "capability_statement";
+    case "certifications":
+      return "certifications";
+    case "key_personnel":
+      return "key_personnel";
+    case "past_performance":
+      return "past_performance";
+    case "technical_approach":
+      return "technical_approach";
+    default:
+      return "management";
+  }
+}
+
+async function extractLegacyProposalArtifacts(
+  text: string,
+  workspaceId: string
+): Promise<LegacyProposalArtifact[]> {
+  const response = await callAgentAPI(
+    {
+      input: `Extract reusable proposal evidence sections from this legacy proposal.
+
+Return a JSON array. Each item must be:
+{
+  "artifact_type": "capability_statement" | "past_performance" | "key_personnel" | "certifications" | "management" | "technical_approach" | "cybersecurity_posture" | "quality_management" | "staffing_approach",
+  "artifact_title": "short descriptive title",
+  "category": "past_performance" | "technical_approach" | "key_personnel" | "corporate_overview" | "certifications" | "management",
+  "confidence": "high" | "medium" | "low",
+  "content": "self-contained reusable evidence excerpt",
+  "keywords": ["..."],
+  "naics_codes": ["541512"],
+  "agency": "agency if named, else null",
+  "contract_type": "contract type if named, else null",
+  "date": "year/date if named, else null"
+}
+
+Extract 5-12 high-value artifacts. Prefer complete, proposal-ready evidence over tiny snippets.
+
+LEGACY PROPOSAL TEXT:
+${text.slice(0, 30000)}`,
+      instructions:
+        "Return JSON only. Never invent contract values, certifications, agencies, or personnel not present in the source text.",
+      model: "anthropic/claude-sonnet-4-6",
+    },
+    { workspaceId, operationType: "legacy_proposal_extraction" }
+  );
+
+  const parsed = safeJsonExtract(response.outputText);
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed
+    .map((item): LegacyProposalArtifact | null => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const content = typeof row.content === "string" ? row.content.trim() : "";
+      const rawCategory = String(row.category || "").trim() as EvidenceCategory;
+      const category = VALID_CATEGORIES.has(rawCategory) ? rawCategory : "corporate_overview";
+      if (content.length < 80) return null;
+      const confidence = row.confidence === "high" || row.confidence === "low" ? row.confidence : "medium";
+      return {
+        artifact_type:
+          typeof row.artifact_type === "string" && row.artifact_type.trim()
+            ? row.artifact_type.trim()
+            : defaultArtifactType(category),
+        artifact_title:
+          typeof row.artifact_title === "string" ? row.artifact_title.trim() : undefined,
+        category,
+        confidence,
+        content,
+        keywords: Array.isArray(row.keywords) ? row.keywords.map(String).slice(0, 12) : [],
+        naics_codes: Array.isArray(row.naics_codes)
+          ? row.naics_codes.map(String).map((code) => code.replace(/\D/g, "").slice(0, 6)).filter(Boolean)
+          : [],
+        agency: typeof row.agency === "string" ? row.agency : null,
+        contract_type: typeof row.contract_type === "string" ? row.contract_type : null,
+        date: typeof row.date === "string" ? row.date : null,
+      };
+    })
+    .filter(Boolean) as LegacyProposalArtifact[];
 }
 
 // ---- Service Functions ----
@@ -101,13 +224,48 @@ export async function indexDocument(
     const buffer = Buffer.from(await fileData.arrayBuffer());
     const parsed = await parseDocument(buffer, doc.filename);
 
-    // 3. Chunk into ~500 token segments with 50 token overlap
-    const chunks = chunkText(parsed.text, 500, 50);
+    // 3. Chunk into reusable evidence. Legacy proposals get a second pass that
+    // extracts high-value artifacts from one uploaded proposal.
+    const legacyArtifacts =
+      doc.ingestion_mode === "legacy_proposal"
+        ? await extractLegacyProposalArtifacts(parsed.text, workspaceId)
+        : [];
+    const chunks = legacyArtifacts.length
+      ? legacyArtifacts.map((artifact) => artifact.content)
+      : chunkText(parsed.text, 500, 50);
 
-    // 4. Auto-tag each chunk with Perplexity Agent API
-    const tagResponse = await callAgentAPI(
-      {
-        input: `Classify each of the following document chunks into exactly one category and extract metadata.
+    // 4. Auto-tag each chunk with Perplexity Agent API unless the legacy
+    // extraction already supplied artifact metadata.
+    let tagResults: Array<{
+      chunkIndex: number;
+      category: string;
+      naics_codes?: string[];
+      agency?: string;
+      contract_type?: string;
+      keywords?: string[];
+      date?: string;
+      artifact_type?: string;
+      artifact_title?: string;
+      artifact_confidence?: "high" | "medium" | "low";
+    }>;
+
+    if (legacyArtifacts.length > 0) {
+      tagResults = legacyArtifacts.map((artifact, index) => ({
+        chunkIndex: index,
+        category: artifact.category,
+        naics_codes: artifact.naics_codes || [],
+        agency: artifact.agency || undefined,
+        contract_type: artifact.contract_type || undefined,
+        keywords: artifact.keywords || [],
+        date: artifact.date || undefined,
+        artifact_type: artifact.artifact_type,
+        artifact_title: artifact.artifact_title,
+        artifact_confidence: artifact.confidence || "medium",
+      }));
+    } else {
+      const tagResponse = await callAgentAPI(
+        {
+          input: `Classify each of the following document chunks into exactly one category and extract metadata.
 
 Categories: past_performance, technical_approach, key_personnel, corporate_overview, certifications, management
 
@@ -124,32 +282,23 @@ For each chunk, return JSON array with objects:
 
 Document chunks:
 ${chunks.map((c, i) => `[Chunk ${i}]: ${c.slice(0, 300)}`).join("\n\n")}`,
-        instructions: "Return ONLY valid JSON array. No markdown, no explanation.",
-        model: "anthropic/claude-sonnet-4-6",
-      },
-      { workspaceId, operationType: "analysis" }
-    );
+          instructions: "Return ONLY valid JSON array. No markdown, no explanation.",
+          model: "anthropic/claude-sonnet-4-6",
+        },
+        { workspaceId, operationType: "analysis" }
+      );
 
-    let tagResults: Array<{
-      chunkIndex: number;
-      category: string;
-      naics_codes?: string[];
-      agency?: string;
-      contract_type?: string;
-      keywords?: string[];
-      date?: string;
-    }>;
-
-    try {
-      const cleaned = tagResponse.outputText.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
-      tagResults = JSON.parse(cleaned);
-    } catch {
-      // Fallback: assign all chunks as corporate_overview
-      tagResults = chunks.map((_, i) => ({
-        chunkIndex: i,
-        category: "corporate_overview",
-        keywords: [],
-      }));
+      try {
+        const cleaned = tagResponse.outputText.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+        tagResults = JSON.parse(cleaned);
+      } catch {
+        // Fallback: assign all chunks as corporate_overview
+        tagResults = chunks.map((_, i) => ({
+          chunkIndex: i,
+          category: "corporate_overview",
+          keywords: [],
+        }));
+      }
     }
 
     // 5. Generate embeddings for all chunks
@@ -167,20 +316,24 @@ ${chunks.map((c, i) => `[Chunk ${i}]: ${c.slice(0, 300)}`).join("\n\n")}`,
 
     const rows = chunks.map((chunk, i) => {
       const tag = tagResults.find((t) => t.chunkIndex === i) || tagResults[i] || { category: "corporate_overview" };
-      const category = tag.category as keyof typeof categories;
+      const category = (tag.category in categories ? tag.category : "corporate_overview") as keyof typeof categories;
       if (category in categories) categories[category]++;
 
       return {
         workspace_id: workspaceId,
         source_document_id: documentId,
         content: chunk,
-        category: category in categories ? category : "corporate_overview",
+        category,
         naics_codes: tag.naics_codes || [],
         agency: tag.agency || null,
         contract_type: tag.contract_type || null,
         keywords: tag.keywords || [],
         content_date: tag.date || null,
         embedding: JSON.stringify(embeddings[i]),
+        artifact_type: tag.artifact_type || defaultArtifactType(category),
+        artifact_title: tag.artifact_title || null,
+        artifact_confidence: tag.artifact_confidence || "medium",
+        trust_level: "user_verified",
       };
     });
 
@@ -268,6 +421,7 @@ export async function searchEvidence(
           .select("*")
           .eq("workspace_id", workspaceId)
           .eq("is_excluded", false)
+          .neq("trust_level", "public_unverified")
           .textSearch("content", query.split(" ").slice(0, 5).join(" & "))
           .limit(limit);
         return fallbackData || [];

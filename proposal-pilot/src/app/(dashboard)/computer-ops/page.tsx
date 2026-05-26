@@ -145,10 +145,10 @@ export default function ComputerOpsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <Cpu className="h-6 w-6" />
-              Agent Activity
+              AI Activity
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Live feed of all Perplexity Agent operations
+              Live feed of AI research, scoring, drafting, and compliance operations
             </p>
           </div>
           {hasRunning && (

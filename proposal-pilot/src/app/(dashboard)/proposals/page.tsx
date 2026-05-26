@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DocumentUploader, type UploadWorkflowResult } from "@/components/features/document-uploader";
+import { ProposalSubnav } from "@/components/features/proposal-subnav";
 import {
   getWorkflowStatus,
   type ProposalWorkflow,
@@ -116,6 +117,8 @@ export default function ProposalsPage() {
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      <ProposalSubnav />
 
       <DocumentUploader
         type="rfp"

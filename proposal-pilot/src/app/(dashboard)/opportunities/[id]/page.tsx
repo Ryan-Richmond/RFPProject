@@ -6,6 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Building2,
   Clock,
   DollarSign,
@@ -71,6 +79,25 @@ interface OpportunityDetail {
   }>;
 }
 
+interface OnboardingReadiness {
+  readinessScore: number;
+  goodEnoughToStart: boolean;
+  evidence: {
+    items: Array<{
+      id: string;
+      label: string;
+      ready: boolean;
+      neededForCurrentRfp?: boolean;
+    }>;
+  };
+  activeProposalGap: {
+    solicitationTitle: string;
+    red: number;
+    yellow: number;
+    categories: string[];
+  } | null;
+}
+
 function ScoreBar({
   label,
   score,
@@ -119,13 +146,21 @@ export default function OpportunityDetailPage() {
   const [promoting, setPromoting] = useState(false);
   const [enriching, setEnriching] = useState(false);
   const [showScoreInfo, setShowScoreInfo] = useState(false);
+  const [showCommitModal, setShowCommitModal] = useState(false);
+  const [readiness, setReadiness] = useState<OnboardingReadiness | null>(null);
 
   async function fetchOpportunity() {
     try {
-      const res = await fetch(`/api/opportunities/${params.id}`);
+      const [res, readinessRes] = await Promise.all([
+        fetch(`/api/opportunities/${params.id}`),
+        fetch("/api/onboarding/readiness"),
+      ]);
       if (res.ok) {
         const data = await res.json();
         setOpportunity(data);
+      }
+      if (readinessRes.ok) {
+        setReadiness(await readinessRes.json());
       }
     } catch (error) {
       console.error("Failed to fetch opportunity:", error);
@@ -170,6 +205,10 @@ export default function OpportunityDetailPage() {
   }
 
   async function handleStartProposal() {
+    setShowCommitModal(true);
+  }
+
+  async function confirmStartProposal() {
     setPromoting(true);
     try {
       const res = await fetch(`/api/opportunities/${params.id}`, {
@@ -178,9 +217,13 @@ export default function OpportunityDetailPage() {
       if (res.ok) {
         const data = await res.json();
         router.push(`/proposals/${data.proposalId || data.solicitationId}`);
+      } else {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload.error || "Failed to start proposal");
       }
     } catch (error) {
       console.error("Failed to promote opportunity:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to start proposal");
     } finally {
       setPromoting(false);
     }
@@ -255,6 +298,7 @@ export default function OpportunityDetailPage() {
       );
 
   const aiEnriched = Boolean(opportunity.ai_enriched);
+  const likelyGaps = readiness?.evidence.items.filter((item) => !item.ready).slice(0, 5) || [];
   const hasDescriptionText =
     typeof opportunity.description === "string" &&
     opportunity.description.trim().length > 0 &&
@@ -262,6 +306,113 @@ export default function OpportunityDetailPage() {
 
   return (
     <div className="space-y-6 animate-content-rise">
+      <Dialog open={showCommitModal} onOpenChange={(open) => !promoting && setShowCommitModal(open)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Commit this opportunity to proposal work?</DialogTitle>
+            <DialogDescription>
+              Review fit, verified evidence, and likely gaps before creating the proposal workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Win Probability</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {score ? (
+                  <>
+                    <div className="flex items-end justify-between gap-3">
+                      <div className="text-4xl font-bold tabular-nums">
+                        {score.overall_score}
+                        <span className="text-base text-muted-foreground">/100</span>
+                      </div>
+                      <Badge
+                        className={
+                          score.overall_score >= 75
+                            ? "bg-success/10 text-success border-success/20"
+                            : score.overall_score >= 50
+                              ? "bg-warning/10 text-warning border-warning/20"
+                              : "bg-danger/10 text-danger border-danger/20"
+                        }
+                      >
+                        {score.recommendation}
+                      </Badge>
+                    </div>
+                    <ScoreBar label="Capability Match" score={score.capability_match_score} />
+                    <ScoreBar label="NAICS Match" score={score.naics_match_score} />
+                    <ScoreBar label="Set-Aside Eligibility" score={score.set_aside_eligibility_score} />
+                    {score.score_rationale ? (
+                      <p className="text-xs leading-5 text-muted-foreground">{score.score_rationale}</p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Run AI analysis for a scored recommendation before committing.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Requirements vs. You</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Evidence Readiness</p>
+                    <p className="mt-1 text-2xl font-bold">{readiness?.readinessScore ?? 0}%</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs text-muted-foreground">Good Enough</p>
+                    <p className="mt-1 text-sm font-semibold">
+                      {readiness?.goodEnoughToStart ? "Yes" : "Not yet"}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Likely evidence gaps
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {likelyGaps.length ? (
+                      likelyGaps.map((gap) => (
+                        <div key={gap.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
+                          <span className="text-sm">{gap.label}</span>
+                          {gap.neededForCurrentRfp ? (
+                            <Badge className="bg-warning/10 text-warning border-warning/20">
+                              Current RFP
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">Missing</Badge>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+                        No major onboarding evidence gaps detected.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Public research can guide recommendations, but only verified profile data and uploaded/SAM-verified evidence can support draft citations.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCommitModal(false)} disabled={promoting}>
+              Cancel
+            </Button>
+            <Button onClick={confirmStartProposal} disabled={promoting} className="gap-2">
+              {promoting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSearch className="h-4 w-4" />}
+              Start Proposal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Back button + Sticky header */}
       <div className="sticky top-0 -mx-6 -mt-6 z-30 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70 px-6 pt-4 pb-3 border-b">
         <Button

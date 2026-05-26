@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface DocumentUploaderProps {
-  type: "company" | "rfp";
+  type: "company" | "rfp" | "legacy_proposal";
   title: string;
   description: string;
   onComplete?: (results: UploadWorkflowResult[]) => void;
@@ -118,7 +118,7 @@ const CATEGORY_RULES: Array<{
   },
 ];
 
-function inferMapping(fileName: string, uploadType: "company" | "rfp"): FileMappingPreview {
+function inferMapping(fileName: string, uploadType: "company" | "rfp" | "legacy_proposal"): FileMappingPreview {
   if (uploadType === "rfp") {
     return {
       destination: "RFP Analyzer",
@@ -126,6 +126,18 @@ function inferMapping(fileName: string, uploadType: "company" | "rfp"): FileMapp
       confidence: "high",
       signals: ["RFP upload flow"],
       note: "This file will be treated as a solicitation, not reusable company evidence.",
+    };
+  }
+
+  if (uploadType === "legacy_proposal") {
+    return {
+      destination: "Knowledge Base",
+      category: "past_performance",
+      readinessArea: "Legacy proposal section extraction",
+      confidence: "high",
+      signals: ["legacy proposal"],
+      note:
+        "This file will be split into reusable evidence artifacts such as capabilities, past performance, personnel, certifications, and management approach.",
     };
   }
 
@@ -226,7 +238,10 @@ export function DocumentUploader({
 
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("documentType", "company");
+      formData.append("documentType", type === "legacy_proposal" ? "legacy_proposal" : "company");
+      if (type === "legacy_proposal") {
+        formData.append("ingestionMode", "legacy_proposal");
+      }
 
       const uploadResponse = await fetch("/api/documents", {
         method: "POST",
@@ -268,7 +283,7 @@ export function DocumentUploader({
 
       return { documentId: document.id };
     },
-    [updateFile]
+    [type, updateFile]
   );
 
   const uploadRfpDocument = useCallback(
@@ -411,7 +426,7 @@ export function DocumentUploader({
 
         try {
           const result =
-            type === "company"
+            type === "company" || type === "legacy_proposal"
               ? await uploadCompanyDocument(uploadFile.sourceFile, uploadFile.id)
               : await uploadRfpDocument(uploadFile.sourceFile, uploadFile.id);
 
@@ -431,9 +446,11 @@ export function DocumentUploader({
       if (successfulUploads.length > 0) {
         onComplete?.(successfulUploads);
         toast.success(
-          type === "company"
-            ? "Company documents indexed successfully."
-            : "RFP uploaded and analyzed successfully."
+          type === "rfp"
+            ? "RFP uploaded and analyzed successfully."
+            : type === "legacy_proposal"
+            ? "Legacy proposal extracted into reusable evidence."
+            : "Company documents indexed successfully."
         );
       }
     },

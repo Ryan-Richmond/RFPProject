@@ -27,8 +27,11 @@ import {
   Upload,
 } from "lucide-react";
 import { OnboardingGuide } from "@/components/features/onboarding-guide";
+import { OnboardingMissionControl } from "@/components/features/onboarding-mission-control";
 
 const IS_MOCK_MODE = process.env.NEXT_PUBLIC_AI_MODE === "mock";
+const ONBOARDING_LADDER_ENABLED =
+  process.env.NEXT_PUBLIC_ONBOARDING_LADDER_ENABLED === "true";
 const DEMO_FILENAMES = new Set([
   "Demo Capability Statement.txt",
   "Demo Cybersecurity Modernization RFP.txt",
@@ -61,6 +64,30 @@ interface AgentOperationsPayload {
     complianceCount: number;
     scoringCount: number;
     runningCount: number;
+  };
+}
+
+interface OnboardingReadinessPayload {
+  readinessScore: number;
+  currentRung: "public_baseline" | "minimum_evidence" | "rfp_specific_gaps" | "full_library";
+  goodEnoughToStart: boolean;
+  profile: { score: number };
+  publicBaseline: { status: "missing" | "running" | "complete" | "error" };
+  evidence: {
+    minimumReady: boolean;
+    minimumReadyCount: number;
+    minimumTotal: number;
+    totalChunks: number;
+  };
+  activeProposalGap: {
+    solicitationTitle: string;
+    red: number;
+    yellow: number;
+  } | null;
+  nextAction: {
+    label: string;
+    description: string;
+    href: string;
   };
 }
 
@@ -121,6 +148,7 @@ export default function WorkspacePage() {
   const [documents, setDocuments] = useState<WorkspaceDocument[]>([]);
   const [proposals, setProposals] = useState<ProposalWorkflow[]>([]);
   const [operations, setOperations] = useState<AgentOperationsPayload | null>(null);
+  const [readiness, setReadiness] = useState<OnboardingReadinessPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [seedError, setSeedError] = useState<string | null>(null);
@@ -137,28 +165,37 @@ export default function WorkspacePage() {
   const fetchWorkspaceData = useCallback(async () => {
     setLoading(true);
     try {
-      const [documentsResponse, proposalsResponse, operationsResponse, statusResponse] =
+      const [
+        documentsResponse,
+        proposalsResponse,
+        operationsResponse,
+        statusResponse,
+        readinessResponse,
+      ] =
         await Promise.all([
           fetch("/api/documents?type=company"),
           fetch("/api/proposals"),
           fetch("/api/agent-operations"),
           fetch("/api/workspace/status"),
+          fetch("/api/onboarding/readiness"),
         ]);
 
       if (!documentsResponse.ok || !proposalsResponse.ok || !operationsResponse.ok) {
         throw new Error("Failed to load workspace data");
       }
 
-      const [documentsData, proposalsData, operationsData, statusData] = await Promise.all([
+      const [documentsData, proposalsData, operationsData, statusData, readinessData] = await Promise.all([
         documentsResponse.json(),
         proposalsResponse.json(),
         operationsResponse.json(),
         statusResponse.ok ? statusResponse.json() : null,
+        readinessResponse.ok ? readinessResponse.json() : null,
       ]);
 
       setDocuments(documentsData as WorkspaceDocument[]);
       setProposals(proposalsData as ProposalWorkflow[]);
       setOperations(operationsData as AgentOperationsPayload);
+      setReadiness(readinessData as OnboardingReadinessPayload | null);
       
       if (statusData) {
         setHasProfile(statusData.hasProfile as boolean);
@@ -337,7 +374,11 @@ export default function WorkspacePage() {
         </div>
       ) : null}
 
-      {!loading && (!hasCompletedOnboarding || showPreviewGuide) && (
+      {!loading && ONBOARDING_LADDER_ENABLED && readiness && !showPreviewGuide ? (
+        <OnboardingMissionControl readiness={readiness} />
+      ) : null}
+
+      {!loading && ((!ONBOARDING_LADDER_ENABLED && !hasCompletedOnboarding) || showPreviewGuide) && (
         <OnboardingGuide
           hasProfile={hasProfile}
           hasDocuments={documents.length > 0}
