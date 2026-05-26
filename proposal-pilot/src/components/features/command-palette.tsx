@@ -250,12 +250,12 @@ export function CommandPalette() {
       { id: "nav-workspace", label: "Go to Workspace", kind: "navigation", icon: LayoutDashboard, keywords: ["dashboard", "home"], shortcut: "G W", run: () => go("/workspace") },
       { id: "nav-opps", label: "Go to Opportunities", kind: "navigation", icon: Target, keywords: ["rfp", "pipeline"], shortcut: "G O", run: () => go("/opportunities") },
       { id: "nav-kb", label: "Go to Knowledge Base", kind: "navigation", icon: BookOpen, keywords: ["documents", "uploads"], shortcut: "G K", run: () => go("/knowledge-base") },
-      { id: "nav-proposals", label: "Go to RFP Analysis", kind: "navigation", icon: FileSearch, keywords: ["proposals"], shortcut: "G R", run: () => go("/proposals") },
-      { id: "nav-drafting", label: "Go to Drafting", kind: "navigation", icon: PenTool, shortcut: "G D", run: () => go("/drafting") },
-      { id: "nav-compliance", label: "Go to Compliance", kind: "navigation", icon: CheckCircle, shortcut: "G C", run: () => go("/compliance") },
+      { id: "nav-proposals", label: "Go to Proposals", kind: "navigation", icon: FileSearch, keywords: ["rfp", "analysis", "workflows"], shortcut: "G R", run: () => go("/proposals") },
+      { id: "nav-drafting", label: "Open Drafting Queue", kind: "navigation", icon: PenTool, shortcut: "G D", run: () => go("/drafting") },
+      { id: "nav-compliance", label: "Open Compliance Queue", kind: "navigation", icon: CheckCircle, shortcut: "G C", run: () => go("/compliance") },
       { id: "nav-profile", label: "Go to Company Profile", kind: "navigation", icon: Building2, shortcut: "G P", run: () => go("/profile") },
       { id: "nav-team", label: "Go to Team", kind: "navigation", icon: Users, run: () => go("/team") },
-      { id: "nav-ops", label: "Go to Computer Ops", kind: "navigation", icon: Cpu, run: () => go("/computer-ops") },
+      { id: "nav-ops", label: "Go to AI Activity", kind: "navigation", icon: Cpu, run: () => go("/computer-ops") },
     ];
 
     const actions: Command[] = [

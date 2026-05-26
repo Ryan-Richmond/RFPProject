@@ -8,7 +8,6 @@ import {
   BookOpen,
   FileSearch,
   PenTool,
-  CheckCircle,
   LayoutDashboard,
   Settings,
   LogOut,
@@ -64,19 +63,9 @@ const navItems = [
     icon: BookOpen,
   },
   {
-    label: "RFP Analysis",
+    label: "Proposals",
     href: "/proposals",
     icon: FileSearch,
-  },
-  {
-    label: "Drafting",
-    href: "/drafting",
-    icon: PenTool,
-  },
-  {
-    label: "Compliance",
-    href: "/compliance",
-    icon: CheckCircle,
   },
   {
     label: "Profile",
@@ -89,7 +78,7 @@ const navItems = [
     icon: Users,
   },
   {
-    label: "Computer Ops",
+    label: "AI Activity",
     href: "/computer-ops",
     icon: Cpu,
   },

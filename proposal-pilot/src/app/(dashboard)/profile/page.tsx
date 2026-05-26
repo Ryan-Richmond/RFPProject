@@ -13,6 +13,7 @@ import { SuggestingTagInput, type TagSuggestion } from "@/components/features/su
 import { ProgressRing } from "@/components/ui/progress-ring";
 import { searchCapabilities, COMMON_CAPABILITIES } from "@/lib/profile/capabilities";
 import { searchNaicsCodes, findNaicsByCode } from "@/lib/profile/naics-codes";
+import { PublicBaselinePanel } from "@/components/features/public-baseline-panel";
 
 interface ClientProfile {
   company_name?: string;
@@ -371,6 +372,23 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      <PublicBaselinePanel
+        profile={profile}
+        onApplied={(updatedProfile) =>
+          setProfile((current) => ({
+            ...current,
+            ...updatedProfile,
+            naics_codes: updatedProfile.naics_codes || current.naics_codes || [],
+            certifications: updatedProfile.certifications || current.certifications || [],
+            past_contract_vehicles:
+              updatedProfile.past_contract_vehicles || current.past_contract_vehicles || [],
+            preferred_agencies:
+              updatedProfile.preferred_agencies || current.preferred_agencies || [],
+            core_capabilities: updatedProfile.core_capabilities || current.core_capabilities || [],
+          }))
+        }
+      />
 
       {/* Company Info */}
       <Card>

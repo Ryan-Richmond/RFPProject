@@ -80,7 +80,7 @@ export default function Home() {
           <div className="animate-fade-up flex flex-col justify-center">
             <div className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-primary/15 bg-white/70 px-4 py-2 text-sm font-medium text-primary shadow-sm backdrop-blur">
               <Sparkles className="h-4 w-4" />
-              Vercel-ready proposal intelligence for GovCon teams
+              Evidence-backed proposal intelligence for GovCon teams
             </div>
             <h1 className="max-w-4xl text-5xl font-semibold tracking-[-0.045em] text-foreground sm:text-6xl lg:text-7xl">
               Ship compliant proposals from a living evidence base.

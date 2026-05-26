@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ProposalSubnav } from "@/components/features/proposal-subnav";
 import {
   getWorkflowStatus,
   type ProposalWorkflow,
@@ -138,6 +139,8 @@ export default function CompliancePage() {
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
       </div>
+
+      <ProposalSubnav />
 
       <div className="grid gap-4 sm:grid-cols-4">
         {[

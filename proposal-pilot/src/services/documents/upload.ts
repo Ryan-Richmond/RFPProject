@@ -8,6 +8,7 @@
 import { createClient } from "@/lib/supabase/server";
 
 export type DocumentType = "rfp" | "company";
+export type IngestionMode = "standard" | "legacy_proposal";
 export type ProcessingStatus =
   | "queued"
   | "processing"
@@ -22,6 +23,7 @@ export interface SourceDocument {
   file_path: string;
   file_size: number;
   mime_type: string;
+  ingestion_mode?: IngestionMode;
   processing_status: ProcessingStatus;
   created_at: string;
   updated_at: string;
@@ -41,7 +43,8 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 export async function uploadDocument(
   file: File,
   workspaceId: string,
-  documentType: DocumentType
+  documentType: DocumentType,
+  ingestionMode: IngestionMode = "standard"
 ): Promise<SourceDocument> {
   // Validate
   if (!ALLOWED_MIME_TYPES.includes(file.type)) {
@@ -80,6 +83,7 @@ export async function uploadDocument(
       file_path: filePath,
       file_size: file.size,
       mime_type: file.type,
+      ingestion_mode: ingestionMode,
       processing_status: "queued",
     })
     .select()

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,57 +51,33 @@ interface SearchResult {
   };
 }
 
-interface RecommendedDocument {
+interface ReadinessItem {
   id: string;
   label: string;
-  tier: "critical" | "recommended" | "differentiator";
-  keywords: string[];
-  freshnessMonths: number;
+  group: "minimum" | "high_impact" | "advanced";
   why: string;
+  ready: boolean;
+  matchedCount: number;
+  neededForCurrentRfp?: boolean;
 }
 
-const RECOMMENDED_DOCUMENTS: RecommendedDocument[] = [
-  { id: "capability_statement", label: "Capability Statement", tier: "critical", keywords: ["capability statement"], freshnessMonths: 6, why: "Core company positioning and differentiators." },
-  { id: "past_performance", label: "Past Performance Narratives", tier: "critical", keywords: ["past performance", "cpars", "references"], freshnessMonths: 12, why: "Provides credible evidence and outcomes for evaluators." },
-  { id: "corporate_experience", label: "Corporate Experience Writeups", tier: "critical", keywords: ["corporate experience"], freshnessMonths: 12, why: "Demonstrates delivery depth across domains." },
-  { id: "key_personnel", label: "Key Personnel Resumes", tier: "critical", keywords: ["resume", "key personnel", "bio"], freshnessMonths: 6, why: "Supports staffing and qualifications sections." },
-  { id: "quality_management", label: "Quality Management Plan", tier: "critical", keywords: ["quality", "qms"], freshnessMonths: 12, why: "Improves management and risk confidence." },
-  { id: "cybersecurity", label: "Cybersecurity Posture", tier: "critical", keywords: ["cyber", "ssp", "security"], freshnessMonths: 12, why: "Required for many federal opportunities." },
-  { id: "certifications", label: "Certifications Evidence", tier: "critical", keywords: ["iso", "soc", "fedramp", "certification"], freshnessMonths: 12, why: "Backs mandatory qualification claims." },
-  { id: "naics_socioeconomic", label: "NAICS + Socioeconomic Status", tier: "critical", keywords: ["naics", "8(a)", "sdvosb", "wosb", "hubzone"], freshnessMonths: 12, why: "Supports set-aside and eligibility checks." },
-  { id: "contract_vehicle", label: "Contract Vehicle List", tier: "critical", keywords: ["gwac", "idiq", "bpa", "contract vehicle"], freshnessMonths: 12, why: "Establishes procurement pathway alignment." },
-  { id: "staffing_approach", label: "Staffing/Management Approach", tier: "critical", keywords: ["staffing", "management approach"], freshnessMonths: 12, why: "Speeds technical and management volume drafting." },
-  { id: "transition_plan", label: "Transition Plans", tier: "recommended", keywords: ["transition"], freshnessMonths: 24, why: "Improves operational credibility at award start." },
-  { id: "risk_playbook", label: "Risk Register + Mitigation", tier: "recommended", keywords: ["risk", "mitigation"], freshnessMonths: 12, why: "Strengthens risk and compliance responses." },
-  { id: "partner_capabilities", label: "Teaming Partner Summaries", tier: "recommended", keywords: ["teaming", "partner", "subcontractor"], freshnessMonths: 12, why: "Expands scope coverage for large bids." },
-  { id: "innovation_cases", label: "Innovation Case Studies", tier: "differentiator", keywords: ["innovation", "automation", "accelerator"], freshnessMonths: 24, why: "Creates differentiation beyond minimum compliance." },
-];
-
-function getDocumentReadiness(documents: KnowledgeBaseDocument[]) {
-  const now = Date.now();
-  const evaluated = RECOMMENDED_DOCUMENTS.map((item) => {
-    const matched = documents.find((doc) => {
-      const name = doc.filename.toLowerCase();
-      return item.keywords.some((keyword) => name.includes(keyword));
-    });
-
-    const freshnessMet = matched
-      ? now - new Date(matched.created_at).getTime() <= item.freshnessMonths * 30 * 24 * 60 * 60 * 1000
-      : false;
-
-    return {
-      ...item,
-      matched,
-      freshnessMet,
-    };
-  });
-
-  const coverageScore = Math.round((evaluated.filter((item) => item.matched).length / evaluated.length) * 100);
-  const freshnessScore = Math.round((evaluated.filter((item) => item.freshnessMet).length / evaluated.length) * 100);
-
-  const weightedScore = Math.round(coverageScore * 0.6 + freshnessScore * 0.4);
-
-  return { evaluated, coverageScore, freshnessScore, weightedScore };
+interface OnboardingReadiness {
+  readinessScore: number;
+  goodEnoughToStart: boolean;
+  evidence: {
+    minimumReady: boolean;
+    minimumReadyCount: number;
+    minimumTotal: number;
+    totalChunks: number;
+    items: ReadinessItem[];
+  };
+  activeProposalGap: {
+    proposalId: string;
+    solicitationTitle: string;
+    red: number;
+    yellow: number;
+    categories: string[];
+  } | null;
 }
 
 function getStatusBadge(status: KnowledgeBaseDocument["processing_status"]) {
@@ -144,6 +120,7 @@ function formatRelative(date: string) {
 
 export default function KnowledgeBasePage() {
   const [documents, setDocuments] = useState<KnowledgeBaseDocument[]>([]);
+  const [readiness, setReadiness] = useState<OnboardingReadiness | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -154,10 +131,16 @@ export default function KnowledgeBasePage() {
   const fetchDocuments = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/documents?type=company");
-      if (response.ok) {
-        const data = await response.json();
+      const [documentsResponse, readinessResponse] = await Promise.all([
+        fetch("/api/documents?type=company"),
+        fetch("/api/onboarding/readiness"),
+      ]);
+      if (documentsResponse.ok) {
+        const data = await documentsResponse.json();
         setDocuments(data);
+      }
+      if (readinessResponse.ok) {
+        setReadiness(await readinessResponse.json());
       }
     } catch (error) {
       console.error("Failed to fetch knowledge base documents:", error);
@@ -232,7 +215,54 @@ export default function KnowledgeBasePage() {
     errors: documents.filter((doc) => doc.processing_status === "error").length,
   };
 
-  const readiness = getDocumentReadiness(documents);
+  const readinessGroups = useMemo(() => {
+    const items = readiness?.evidence.items || [];
+    return {
+      minimum: items.filter((item) => item.group === "minimum"),
+      highImpact: items.filter((item) => item.group === "high_impact"),
+      advanced: items.filter((item) => item.group === "advanced"),
+    };
+  }, [readiness]);
+
+  const readinessSummary = useMemo(() => {
+    const items = readiness?.evidence.items || [];
+    const readyCount = items.filter((item) => item.ready).length;
+    return {
+      total: items.length,
+      readyCount,
+      coverageScore: items.length ? Math.round((readyCount / items.length) * 100) : 0,
+    };
+  }, [readiness]);
+
+  function renderReadinessItems(items: ReadinessItem[]) {
+    return (
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div key={item.id} className="rounded-lg border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">{item.label}</p>
+                {item.neededForCurrentRfp ? (
+                  <Badge className="bg-warning/10 text-warning border-warning/20">
+                    Needed for current RFP
+                  </Badge>
+                ) : null}
+              </div>
+              <Badge variant={item.ready ? "default" : "outline"}>
+                {item.ready ? "Ready" : "Missing"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{item.why}</p>
+            {item.matchedCount > 0 ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {item.matchedCount} verified evidence chunks matched
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -279,6 +309,15 @@ export default function KnowledgeBasePage() {
         }}
       />
 
+      <DocumentUploader
+        type="legacy_proposal"
+        title="Upload One Legacy Proposal"
+        description="Extracts reusable capability, past performance, personnel, certification, and management evidence from one prior proposal"
+        onComplete={() => {
+          fetchDocuments();
+        }}
+      />
+
       <div className="grid gap-4 sm:grid-cols-4">
         {[
           { label: "Documents", value: stats.documents, icon: FileText },
@@ -302,44 +341,62 @@ export default function KnowledgeBasePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Recommended Documents</CardTitle>
+          <CardTitle className="text-base">Evidence Readiness</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-lg border p-3">
               <p className="text-xs text-muted-foreground">Readiness Score</p>
-              <p className="text-2xl font-bold">{readiness.weightedScore}%</p>
+              <p className="text-2xl font-bold">{readiness?.readinessScore ?? 0}%</p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Coverage</p>
-              <p className="text-2xl font-bold">{readiness.coverageScore}%</p>
+              <p className="text-xs text-muted-foreground">Minimum Pack</p>
+              <p className="text-2xl font-bold">
+                {readiness?.evidence.minimumReadyCount ?? 0}/{readiness?.evidence.minimumTotal ?? 3}
+              </p>
             </div>
             <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Freshness</p>
-              <p className="text-2xl font-bold">{readiness.freshnessScore}%</p>
+              <p className="text-xs text-muted-foreground">Library Coverage</p>
+              <p className="text-2xl font-bold">{readinessSummary.coverageScore}%</p>
             </div>
           </div>
-          <div className="space-y-2">
-            {readiness.evaluated.map((item) => (
-              <div key={item.id} className="rounded-lg border p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-medium">{item.label}</p>
-                    <Badge variant={item.tier === "critical" ? "default" : "secondary"}>
-                      {item.tier}
-                    </Badge>
-                  </div>
-                  <Badge variant={item.matched && item.freshnessMet ? "default" : "outline"}>
-                    {item.matched ? (item.freshnessMet ? "Ready" : "Stale") : "Missing"}
-                  </Badge>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{item.why}</p>
-                {item.matched ? (
-                  <p className="mt-1 text-xs text-muted-foreground">Matched: {item.matched.filename}</p>
-                ) : null}
-              </div>
-            ))}
-          </div>
+          {readiness?.activeProposalGap ? (
+            <div className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-3">
+              <p className="text-sm font-medium">
+                Current RFP gaps: {readiness.activeProposalGap.solicitationTitle}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {readiness.activeProposalGap.red} red and {readiness.activeProposalGap.yellow} yellow requirements need stronger evidence.
+              </p>
+            </div>
+          ) : null}
+          <section className="space-y-2">
+            <div>
+              <h2 className="text-sm font-semibold">Minimum to start</h2>
+              <p className="text-xs text-muted-foreground">
+                These are enough to begin useful opportunity scoring and evidence-grounded drafting.
+              </p>
+            </div>
+            {renderReadinessItems(readinessGroups.minimum)}
+          </section>
+          <details className="group rounded-lg border p-3">
+            <summary className="cursor-pointer list-none text-sm font-semibold">
+              High impact next
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {readinessGroups.highImpact.filter((item) => item.ready).length}/{readinessGroups.highImpact.length} ready
+              </span>
+            </summary>
+            <div className="mt-3">{renderReadinessItems(readinessGroups.highImpact)}</div>
+          </details>
+          <details className="group rounded-lg border p-3">
+            <summary className="cursor-pointer list-none text-sm font-semibold">
+              Advanced library
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {readinessGroups.advanced.filter((item) => item.ready).length}/{readinessGroups.advanced.length} ready
+              </span>
+            </summary>
+            <div className="mt-3">{renderReadinessItems(readinessGroups.advanced)}</div>
+          </details>
         </CardContent>
       </Card>
 

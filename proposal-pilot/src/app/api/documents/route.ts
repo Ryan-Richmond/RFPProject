@@ -73,7 +73,15 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData();
     const file = formData.get("file");
-    const documentType = formData.get("documentType") || formData.get("type");
+    const rawDocumentTypeValue = formData.get("documentType") || formData.get("type");
+    const rawDocumentType =
+      typeof rawDocumentTypeValue === "string" ? rawDocumentTypeValue : "";
+    const ingestionMode =
+      formData.get("ingestionMode") === "legacy_proposal" ||
+      rawDocumentType === "legacy_proposal"
+        ? "legacy_proposal"
+        : "standard";
+    const documentType = rawDocumentType === "legacy_proposal" ? "company" : rawDocumentType;
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "File is required" }, { status: 400 });
@@ -86,7 +94,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const document = await uploadDocument(file, workspaceId, documentType);
+    const document = await uploadDocument(file, workspaceId, documentType, ingestionMode);
 
     return NextResponse.json({ document }, { status: 201 });
   } catch (error) {
