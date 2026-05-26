@@ -74,10 +74,22 @@ async function main() {
   }
 
   const migrationsDir = path.join(root, "supabase", "migrations");
-  const migrationFiles = fs
-    .readdirSync(migrationsDir)
-    .filter((filename) => filename.endsWith(".sql"))
-    .sort();
+  const requestedMigration = process.argv[2];
+  const migrationFiles = requestedMigration
+    ? [requestedMigration]
+    : fs
+        .readdirSync(migrationsDir)
+        .filter((filename) => filename.endsWith(".sql"))
+        .sort();
+
+  for (const filename of migrationFiles) {
+    if (!filename.endsWith(".sql") || filename.includes("/") || filename.includes("\\")) {
+      throw new Error(`Invalid migration filename: ${filename}`);
+    }
+    if (!fs.existsSync(path.join(migrationsDir, filename))) {
+      throw new Error(`Migration file not found: ${filename}`);
+    }
+  }
 
   const client = new Client({
     connectionString,
