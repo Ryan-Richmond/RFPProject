@@ -5,6 +5,10 @@
  */
 
 import mammoth from "mammoth";
+import {
+  getDocumentExtension,
+  getSupportedDocumentFormat,
+} from "@/lib/documents/validation";
 
 export interface ParsedDocument {
   text: string;
@@ -21,20 +25,22 @@ export interface ParsedDocument {
  */
 export async function parseDocument(
   buffer: Buffer,
-  filename: string
+  filename: string,
+  mimeType = ""
 ): Promise<ParsedDocument> {
-  const ext = filename.split(".").pop()?.toLowerCase();
+  const format = getSupportedDocumentFormat({ name: filename, type: mimeType });
 
-  switch (ext) {
+  switch (format) {
     case "pdf":
       return parsePDF(buffer);
     case "docx":
-    case "doc":
       return parseDOCX(buffer);
     case "txt":
       return parseTXT(buffer);
     default:
-      throw new Error(`Unsupported file format: ${ext}`);
+      throw new Error(
+        `Unsupported file format: ${getDocumentExtension(filename) || mimeType || "unknown"}`
+      );
   }
 }
 

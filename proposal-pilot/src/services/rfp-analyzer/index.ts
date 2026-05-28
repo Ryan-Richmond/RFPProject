@@ -261,7 +261,7 @@ export async function analyzeRFP(
 
       if (fileData) {
         const buffer = Buffer.from(await fileData.arrayBuffer());
-        const parsedDocument = await parseDocument(buffer, doc.filename);
+        const parsedDocument = await parseDocument(buffer, doc.filename, doc.mime_type || "");
         rfpText = parsedDocument.text;
 
         await supabase

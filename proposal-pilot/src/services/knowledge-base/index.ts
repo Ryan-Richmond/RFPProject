@@ -140,7 +140,7 @@ export async function indexDocument(
     if (!fileData) throw new Error("Failed to download document from storage");
 
     const buffer = Buffer.from(await fileData.arrayBuffer());
-    const parsed = await parseDocument(buffer, doc.filename);
+    const parsed = await parseDocument(buffer, doc.filename, doc.mime_type || "");
 
     // 3. Chunk into reusable evidence. Legacy proposals get a second pass that
     // extracts high-value artifacts from one uploaded proposal.
