@@ -51,6 +51,10 @@ const {
   normalizeEntityPayload,
 } = loadTs("src/services/onboarding/sam-entity-core.ts");
 const { getMockAgentResponse } = loadTs("src/lib/ai/mock.ts");
+const {
+  getSupportedDocumentFormat,
+  isSupportedDocumentFile,
+} = loadTs("src/lib/documents/validation.ts");
 
 const now = new Date("2026-05-26T12:00:00Z");
 const fresh = "2026-05-20T12:00:00Z";
@@ -226,6 +230,14 @@ test("SAM entity helper builds public GET URL and normalizes entity payload", ()
   assert.equal(normalized?.legalName, "Example Federal LLC");
   assert.deepEqual(normalized?.suggestions.naics_codes?.map((item) => item.code), ["541512", "541519"]);
   assert.equal(normalized?.suggestions.certifications?.[0].value, "Small Business");
+});
+
+test("document validation accepts PDF MIME variants and generic PDF uploads", () => {
+  assert.equal(getSupportedDocumentFormat({ name: "rfp.pdf", type: "application/pdf" }), "pdf");
+  assert.equal(getSupportedDocumentFormat({ name: "rfp.pdf", type: "application/x-pdf" }), "pdf");
+  assert.equal(getSupportedDocumentFormat({ name: "rfp.pdf", type: "application/octet-stream" }), "pdf");
+  assert.equal(getSupportedDocumentFormat({ name: "rfp.PDF", type: "" }), "pdf");
+  assert.equal(isSupportedDocumentFile({ name: "payload.exe", type: "application/octet-stream" }), false);
 });
 
 let failed = 0;

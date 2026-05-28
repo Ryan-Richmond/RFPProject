@@ -243,7 +243,7 @@ export async function fetchNoticeBundle(
         continue;
       }
 
-      const parsed = await parseDocument(buffer, resource.name);
+      const parsed = await parseDocument(buffer, resource.name, resource.mimeType || "");
       attachments.push({
         resource,
         text: parsed.text,

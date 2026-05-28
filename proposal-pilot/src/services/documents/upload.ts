@@ -6,6 +6,11 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
+import {
+  getCanonicalMimeType,
+  getSupportedDocumentFormat,
+  SUPPORTED_DOCUMENT_LABEL,
+} from "@/lib/documents/validation";
 
 export type DocumentType = "rfp" | "company";
 export type IngestionMode = "standard" | "legacy_proposal";
@@ -29,12 +34,6 @@ export interface SourceDocument {
   updated_at: string;
 }
 
-const ALLOWED_MIME_TYPES = [
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/plain",
-];
-
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 /**
@@ -47,9 +46,10 @@ export async function uploadDocument(
   ingestionMode: IngestionMode = "standard"
 ): Promise<SourceDocument> {
   // Validate
-  if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+  const documentFormat = getSupportedDocumentFormat(file);
+  if (!documentFormat) {
     throw new Error(
-      `Invalid file type: ${file.type}. Allowed: PDF, DOCX, TXT`
+      `Invalid file type: ${file.type || "unknown"}. Allowed: ${SUPPORTED_DOCUMENT_LABEL}`
     );
   }
 
@@ -63,11 +63,12 @@ export async function uploadDocument(
   const timestamp = Date.now();
   const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const filePath = `${workspaceId}/${documentType}/${timestamp}_${sanitizedName}`;
+  const mimeType = getCanonicalMimeType(documentFormat);
 
   // Upload to Supabase Storage
   const { error: storageError } = await supabase.storage
     .from("documents")
-    .upload(filePath, file);
+    .upload(filePath, file, { contentType: mimeType });
 
   if (storageError) {
     throw new Error(`Upload failed: ${storageError.message}`);
@@ -82,7 +83,7 @@ export async function uploadDocument(
       filename: file.name,
       file_path: filePath,
       file_size: file.size,
-      mime_type: file.type,
+      mime_type: mimeType,
       ingestion_mode: ingestionMode,
       processing_status: "queued",
     })

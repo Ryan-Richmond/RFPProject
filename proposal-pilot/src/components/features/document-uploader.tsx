@@ -14,6 +14,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  getSupportedDocumentFormat,
+  isSupportedDocumentFile,
+} from "@/lib/documents/validation";
 
 interface DocumentUploaderProps {
   type: "company" | "rfp" | "legacy_proposal";
@@ -65,12 +69,6 @@ export interface UploadWorkflowResult {
   solicitationId?: string;
   proposalId?: string;
 }
-
-const VALID_TYPES = [
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/plain",
-];
 
 const CATEGORY_LABELS: Record<KnowledgeCategory, string> = {
   past_performance: "Past performance",
@@ -171,11 +169,13 @@ function inferMapping(fileName: string, uploadType: "company" | "rfp" | "legacy_
 }
 
 async function buildPreview(file: File) {
-  if (file.type === "application/pdf") {
+  const format = getSupportedDocumentFormat(file);
+
+  if (format === "pdf") {
     return `PDF detected — content preview is not available in the browser.\n\nVerify this is the correct file before confirming:\n• Filename: ${file.name}\n• Size: ${(file.size / 1024).toFixed(0)} KB\n• Type: PDF document\n\nAfter upload, you can open the original file using the "Open" button in the document list.`;
   }
 
-  if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+  if (format === "docx") {
     return `Word document detected — content preview is not available in the browser.\n\nVerify this is the correct file before confirming:\n• Filename: ${file.name}\n• Size: ${(file.size / 1024).toFixed(0)} KB\n• Type: DOCX document\n\nAfter upload, you can open the original file using the "Open" button in the document list.`;
   }
 
@@ -378,12 +378,12 @@ export function DocumentUploader({
 
   const processFiles = useCallback(
     async (newFiles: File[]) => {
-      const invalidFiles = newFiles.filter((file) => !VALID_TYPES.includes(file.type));
+      const invalidFiles = newFiles.filter((file) => !isSupportedDocumentFile(file));
       if (invalidFiles.length > 0) {
         toast.error("Only PDF, DOCX, and TXT files are supported.");
       }
 
-      const validFiles = newFiles.filter((f) => VALID_TYPES.includes(f.type));
+      const validFiles = newFiles.filter((f) => isSupportedDocumentFile(f));
 
       const uploadFiles = await Promise.all(
         validFiles.map(async (f) => ({
